@@ -1,0 +1,314 @@
+import { create } from 'zustand';
+import type { ImageAnnotation, ClassDefinition, BoundingBox } from '@/types';
+import { CLASS_COLORS } from '@/lib/constants';
+
+interface AnnotationState {
+  images: ImageAnnotation[];
+  classes: ClassDefinition[];
+  currentImageId: string | null;
+  selectedBoxId: string | null;
+
+  // Actions
+  addImages: (files: File[]) => Promise<void>;
+  removeImage: (id: string) => void;
+  setCurrentImage: (id: string | null) => void;
+
+  addClass: (name: string) => void;
+  removeClass: (id: number) => void;
+  updateClass: (id: number, name: string) => void;
+
+  addBox: (imageId: string, box: Omit<BoundingBox, 'id'>) => void;
+  updateBox: (imageId: string, boxId: string, updates: Partial<BoundingBox>) => void;
+  removeBox: (imageId: string, boxId: string) => void;
+  setSelectedBox: (boxId: string | null) => void;
+
+  getCurrentImage: () => ImageAnnotation | null;
+  getSelectedBox: () => BoundingBox | null;
+
+  // 導出功能
+  exportAnnotations: () => Promise<Blob>;
+}
+
+export const useAnnotationStore = create<AnnotationState>((set, get) => ({
+  images: [],
+  classes: [
+    { id: 0, name: 'person', color: CLASS_COLORS[0], count: 0 },
+  ],
+  currentImageId: null,
+  selectedBoxId: null,
+
+  addImages: async (files: File[]) => {
+    const newImages: ImageAnnotation[] = await Promise.all(
+      files.map(async (file) => {
+        const dataUrl = await readFileAsDataURL(file);
+        const { width, height } = await getImageDimensions(dataUrl);
+
+        return {
+          id: crypto.randomUUID(),
+          filename: file.name,
+          width,
+          height,
+          dataUrl,
+          boxes: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+      })
+    );
+
+    set((state) => ({
+      images: [...state.images, ...newImages],
+      currentImageId: state.currentImageId || newImages[0]?.id || null,
+    }));
+  },
+
+  removeImage: (id: string) => {
+    set((state) => ({
+      images: state.images.filter((img) => img.id !== id),
+      currentImageId: state.currentImageId === id ? null : state.currentImageId,
+    }));
+  },
+
+  setCurrentImage: (id: string | null) => {
+    set({ currentImageId: id, selectedBoxId: null });
+  },
+
+  addClass: (name: string) => {
+    set((state) => {
+      const newId = Math.max(...state.classes.map(c => c.id), -1) + 1;
+      const color = CLASS_COLORS[newId % CLASS_COLORS.length];
+
+      return {
+        classes: [...state.classes, { id: newId, name, color, count: 0 }],
+      };
+    });
+  },
+
+  removeClass: (id: number) => {
+    set((state) => ({
+      classes: state.classes.filter((c) => c.id !== id),
+      images: state.images.map((img) => ({
+        ...img,
+        boxes: img.boxes.filter((box) => box.classId !== id),
+      })),
+    }));
+  },
+
+  updateClass: (id: number, name: string) => {
+    set((state) => ({
+      classes: state.classes.map((c) =>
+        c.id === id ? { ...c, name } : c
+      ),
+      images: state.images.map((img) => ({
+        ...img,
+        boxes: img.boxes.map((box) =>
+          box.classId === id ? { ...box, className: name } : box
+        ),
+      })),
+    }));
+  },
+
+  addBox: (imageId: string, box: Omit<BoundingBox, 'id'>) => {
+    const newBox: BoundingBox = {
+      ...box,
+      id: crypto.randomUUID(),
+    };
+
+    set((state) => ({
+      images: state.images.map((img) =>
+        img.id === imageId
+          ? { ...img, boxes: [...img.boxes, newBox], updatedAt: new Date() }
+          : img
+      ),
+      classes: state.classes.map((c) =>
+        c.id === box.classId ? { ...c, count: c.count + 1 } : c
+      ),
+    }));
+  },
+
+  updateBox: (imageId: string, boxId: string, updates: Partial<BoundingBox>) => {
+    set((state) => ({
+      images: state.images.map((img) =>
+        img.id === imageId
+          ? {
+              ...img,
+              boxes: img.boxes.map((box) =>
+                box.id === boxId ? { ...box, ...updates } : box
+              ),
+              updatedAt: new Date(),
+            }
+          : img
+      ),
+    }));
+  },
+
+  removeBox: (imageId: string, boxId: string) => {
+    set((state) => {
+      const image = state.images.find((img) => img.id === imageId);
+      const box = image?.boxes.find((b) => b.id === boxId);
+
+      return {
+        images: state.images.map((img) =>
+          img.id === imageId
+            ? {
+                ...img,
+                boxes: img.boxes.filter((b) => b.id !== boxId),
+                updatedAt: new Date(),
+              }
+            : img
+        ),
+        classes: box
+          ? state.classes.map((c) =>
+              c.id === box.classId ? { ...c, count: Math.max(0, c.count - 1) } : c
+            )
+          : state.classes,
+        selectedBoxId: state.selectedBoxId === boxId ? null : state.selectedBoxId,
+      };
+    });
+  },
+
+  setSelectedBox: (boxId: string | null) => {
+    set({ selectedBoxId: boxId });
+  },
+
+  getCurrentImage: () => {
+    const state = get();
+    return state.images.find((img) => img.id === state.currentImageId) || null;
+  },
+
+  getSelectedBox: () => {
+    const state = get();
+    const currentImage = state.getCurrentImage();
+    if (!currentImage || !state.selectedBoxId) return null;
+    return currentImage.boxes.find((box) => box.id === state.selectedBoxId) || null;
+  },
+
+  exportAnnotations: async () => {
+    try {
+      const state = get();
+
+      // 動態載入 JSZip
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+
+      // 1. 生成 classes.txt
+      const classesText = state.classes
+        .sort((a, b) => a.id - b.id)
+        .map(c => c.name)
+        .join('\n');
+      zip.file('classes.txt', classesText);
+
+      // 2. 為每張圖片生成 YOLO 格式標註
+      const imagesFolder = zip.folder('images');
+      const labelsFolder = zip.folder('labels');
+
+      for (const image of state.images) {
+        // 保存圖片
+        if (imagesFolder) {
+          // 從 dataUrl 提取圖片數據
+          const base64Data = image.dataUrl.split(',')[1];
+          if (!base64Data) {
+            throw new Error(`無法提取圖片數據: ${image.filename}`);
+          }
+          imagesFolder.file(image.filename, base64Data, { base64: true });
+        }
+
+        // 生成 YOLO 標註檔案
+        if (labelsFolder && image.boxes.length > 0) {
+          const yoloLines = image.boxes.map(box => {
+            // YOLO 格式: <class_id> <x_center> <y_center> <width> <height>
+            // 座標已經是歸一化的 (0-1)
+            return `${box.classId} ${box.x.toFixed(6)} ${box.y.toFixed(6)} ${box.width.toFixed(6)} ${box.height.toFixed(6)}`;
+          }).join('\n');
+
+          const labelFilename = image.filename.replace(/\.[^/.]+$/, '.txt');
+          labelsFolder.file(labelFilename, yoloLines);
+        }
+      }
+
+      // 3. 生成 data.yaml
+      const dataYaml = `# YOLO Dataset Configuration
+# Generated by YOLO Web Platform
+
+path: ./  # dataset root dir
+train: images  # train images
+val: images    # val images (using same for demo)
+
+# Classes
+nc: ${state.classes.length}  # number of classes
+names: ${JSON.stringify(state.classes.sort((a, b) => a.id - b.id).map(c => c.name))}  # class names
+`;
+      zip.file('data.yaml', dataYaml);
+
+      // 4. 生成 README.md
+      const readme = `# YOLO Dataset Export
+
+Generated: ${new Date().toISOString()}
+
+## Dataset Statistics
+- Total Images: ${state.images.length}
+- Total Annotations: ${state.images.reduce((sum, img) => sum + img.boxes.length, 0)}
+- Classes: ${state.classes.length}
+
+## Class Distribution
+${state.classes.map(c => `- ${c.name}: ${c.count} annotations`).join('\n')}
+
+## Directory Structure
+\`\`\`
+dataset/
+├── images/           # Images
+├── labels/           # YOLO format annotations (.txt)
+├── classes.txt       # Class names (one per line)
+├── data.yaml         # YOLO configuration file
+└── README.md         # This file
+\`\`\`
+
+## YOLO Format
+Each .txt file contains annotations in the format:
+\`\`\`
+<class_id> <x_center> <y_center> <width> <height>
+\`\`\`
+All coordinates are normalized to [0, 1].
+
+## Usage with YOLO
+\`\`\`bash
+# Train with Ultralytics YOLO
+yolo train data=data.yaml model=yolov8n.pt epochs=100
+\`\`\`
+
+Generated with YOLO Web Platform
+`;
+      zip.file('README.md', readme);
+
+      // 5. 生成 ZIP
+      const blob = await zip.generateAsync({
+        type: 'blob',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 }
+      });
+      return blob;
+    } catch (error) {
+      console.error('Export failed:', error);
+      throw error;
+    }
+  },
+}));
+
+// 輔助函數
+function readFileAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function getImageDimensions(dataUrl: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve({ width: img.width, height: img.height });
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}

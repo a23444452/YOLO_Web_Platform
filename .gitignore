@@ -1,0 +1,63 @@
+# Dependencies
+node_modules/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs/
+
+# Process IDs
+.pids/
+*.pid
+
+# Training outputs
+/backend/*.pt
+/backend/runs/
+/backend/yolo_training/
+/backend/training_jobs/
+/datasets/*/runs/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Coverage
+coverage/
+*.coverage
+.nyc_output/
+htmlcov/
+
+# Backup files
+*.bak
+*.old
+README.old.md

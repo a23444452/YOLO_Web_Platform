@@ -1,0 +1,27 @@
+# 開發依賴
+-r requirements.txt
+
+# 測試工具
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+pytest-mock>=3.12.0
+httpx>=0.25.0          # FastAPI 測試客戶端
+
+# 代碼品質
+ruff>=0.1.0            # Linter + Formatter
+mypy>=1.7.0            # 類型檢查
+black>=23.12.0         # 代碼格式化 (備用)
+
+# 類型存根
+types-aiofiles
+types-Pillow
+
+# 開發工具
+ipython>=8.18.0        # 互動式 Python shell
+ipdb>=0.13.0           # 調試工具
+watchdog>=3.0.0        # 檔案監控
+
+# 文件工具
+mkdocs>=1.5.0
+mkdocs-material>=9.5.0
