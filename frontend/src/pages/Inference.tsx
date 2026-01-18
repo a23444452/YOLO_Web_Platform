@@ -4,9 +4,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Upload, Sparkles, Loader2 } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Upload, Sparkles, Loader2, FileUp } from 'lucide-react';
 import { toast } from 'sonner';
-import { listInferenceModels, runInference, type ModelInfo, type Detection } from '@/lib/api';
+import { listInferenceModels, runInference, uploadModel, type ModelInfo, type Detection } from '@/lib/api';
 
 export function Inference() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -20,6 +22,10 @@ export function Inference() {
   const [detections, setDetections] = useState<Detection[]>([]);
   const [inferenceTime, setInferenceTime] = useState<number | null>(null);
   const [resultImage, setResultImage] = useState<string | null>(null);
+  const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
+  const [uploadModelFile, setUploadModelFile] = useState<File | null>(null);
+  const [uploadModelName, setUploadModelName] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
 
   // Load available models on mount
   useEffect(() => {
@@ -63,6 +69,53 @@ export function Inference() {
     };
     reader.readAsDataURL(file);
   }, []);
+
+  const handleUploadModel = async () => {
+    if (!uploadModelFile || !uploadModelName.trim()) {
+      toast.error('請選擇模型文件並輸入名稱');
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const result = await uploadModel(uploadModelFile, uploadModelName.trim());
+      toast.success(`模型「${result.model_name}」上傳成功！`);
+
+      // Reload models list
+      await loadModels();
+
+      // Select the newly uploaded model
+      setSelectedModel(result.model_id);
+
+      // Reset upload form
+      setUploadModelFile(null);
+      setUploadModelName('');
+      setIsUploadDialogOpen(false);
+    } catch (error) {
+      toast.error('上傳失敗：' + (error as Error).message);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleUploadFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const ext = file.name.toLowerCase().split('.').pop();
+    if (ext !== 'pt' && ext !== 'onnx') {
+      toast.error('只支援 .pt 或 .onnx 格式的模型文件');
+      return;
+    }
+
+    setUploadModelFile(file);
+
+    // Auto-fill model name from filename (without extension)
+    if (!uploadModelName) {
+      const nameWithoutExt = file.name.replace(/\.(pt|onnx)$/i, '');
+      setUploadModelName(nameWithoutExt);
+    }
+  };
 
   const handleInference = async () => {
     if (!selectedImage || !selectedModel) {
@@ -169,7 +222,7 @@ export function Inference() {
                     沒有可用的訓練模型
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    請先完成模型訓練
+                    請先完成模型訓練或上傳本地模型
                   </p>
                 </div>
               ) : (
@@ -187,7 +240,7 @@ export function Inference() {
                       ))}
                     </SelectContent>
                   </Select>
-                  {selectedModel && (
+                  {selectedModel && availableModels.find(m => m.model_id === selectedModel)?.classes.length > 0 && (
                     <div className="mt-2 p-2 bg-muted rounded text-xs space-y-1">
                       {availableModels.find(m => m.model_id === selectedModel)?.classes.map((cls, idx) => (
                         <div key={idx} className="text-muted-foreground">
@@ -198,6 +251,79 @@ export function Inference() {
                   )}
                 </div>
               )}
+
+              <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" className="w-full mt-4">
+                    <FileUp className="mr-2 h-4 w-4" />
+                    上傳本地模型
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>上傳本地模型</DialogTitle>
+                    <DialogDescription>
+                      上傳訓練好的 .pt 或 .onnx 模型文件進行推論測試
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div>
+                      <Label>模型名稱</Label>
+                      <Input
+                        placeholder="輸入模型名稱"
+                        value={uploadModelName}
+                        onChange={(e) => setUploadModelName(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <Label>模型文件</Label>
+                      <div className="mt-2">
+                        <input
+                          id="model-file-input"
+                          type="file"
+                          accept=".pt,.onnx"
+                          className="hidden"
+                          onChange={handleUploadFileSelect}
+                        />
+                        <Button
+                          variant="outline"
+                          className="w-full"
+                          onClick={() => document.getElementById('model-file-input')?.click()}
+                        >
+                          <Upload className="mr-2 h-4 w-4" />
+                          {uploadModelFile ? uploadModelFile.name : '選擇文件 (.pt 或 .onnx)'}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setIsUploadDialogOpen(false);
+                        setUploadModelFile(null);
+                        setUploadModelName('');
+                      }}
+                      disabled={isUploading}
+                    >
+                      取消
+                    </Button>
+                    <Button
+                      onClick={handleUploadModel}
+                      disabled={!uploadModelFile || !uploadModelName.trim() || isUploading}
+                    >
+                      {isUploading ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          上傳中...
+                        </>
+                      ) : (
+                        '上傳'
+                      )}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </CardContent>
           </Card>
 

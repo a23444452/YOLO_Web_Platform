@@ -562,6 +562,30 @@ export async function listInferenceModels(): Promise<ListModelsResponse> {
 }
 
 /**
+ * Upload a local model file for inference
+ */
+export async function uploadModel(
+  file: File,
+  modelName: string
+): Promise<{ message: string; model_id: string; model_name: string }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('model_name', modelName);
+
+  const response = await fetch(`${API_BASE_URL}/api/inference/upload-model`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(error.detail || error.message || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
  * Load a trained model into memory
  */
 export async function loadModel(modelId: string): Promise<{ message: string }> {

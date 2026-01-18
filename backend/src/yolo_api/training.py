@@ -181,6 +181,11 @@ class TrainingManager:
         job_dir = self.work_dir / job_id
         job_dir.mkdir(parents=True, exist_ok=True)
 
+        # Save training config for later reference
+        import json
+        config_file = job_dir / "training_config.json"
+        config_file.write_text(json.dumps(config.model_dump(), indent=2, ensure_ascii=False))
+
         # Initialize job status
         self.jobs[job_id] = TrainingStatus(
             job_id=job_id,

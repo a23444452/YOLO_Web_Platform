@@ -71,7 +71,7 @@ export function ImageList() {
       </div>
 
       <ScrollArea className="flex-1">
-        <div className="p-2 space-y-1">
+        <div className="p-3 space-y-2">
           {images.map((image) => {
             const isActive = image.id === currentImageId;
             const hasAnnotations = image.boxes.length > 0;
@@ -91,7 +91,7 @@ export function ImageList() {
                   <img
                     src={image.dataUrl}
                     alt={image.filename}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain"
                   />
                   {hasAnnotations && (
                     <div className="absolute top-1 left-1 bg-green-500 text-white text-xs px-2 py-0.5 rounded">

@@ -135,3 +135,34 @@ export interface DatasetStatistics {
   avgBoxesPerImage: number;
   imagesWithoutBoxes: number;
 }
+
+// 訓練配置模板（不包含 id、name、datasetId、createdAt）
+export interface TrainingConfigTemplate {
+  id: string;
+  name: string;
+  yoloVersion: 'v5' | 'v8' | 'v11';
+  modelSize: 'n' | 's' | 'm' | 'l' | 'x';
+  epochs: number;
+  batchSize: number;
+  imageSize: number;
+  device: 'cpu' | 'gpu';
+  workers: number;
+  optimizer: 'Adam' | 'SGD' | 'AdamW';
+  learningRate: number;
+  momentum: number;
+  weightDecay: number;
+  patience: number;
+  augmentation: {
+    mosaic: boolean;
+    mixup: boolean;
+    rotation: number;
+    hsvH: number;
+    hsvS: number;
+    hsvV: number;
+    translate: number;
+    scale: number;
+    flipHorizontal: boolean;
+    flipVertical: boolean;
+  };
+  createdAt: Date;
+}

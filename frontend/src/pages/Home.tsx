@@ -63,8 +63,10 @@ export function Home() {
               <ArrowRight className="ml-2 h-4 w-4" />
             </Link>
           </Button>
-          <Button variant="outline" size="lg">
-            查看文檔
+          <Button variant="outline" size="lg" asChild>
+            <Link to="/docs">
+              查看文檔
+            </Link>
           </Button>
         </div>
       </div>

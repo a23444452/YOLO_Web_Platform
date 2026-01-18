@@ -13,17 +13,34 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { YOLO_VERSIONS, MODEL_SIZES, BATCH_SIZES, IMAGE_SIZES, OPTIMIZERS } from '@/lib/constants';
-import { Play, Settings2 } from 'lucide-react';
+import { Play, Settings2, Save, Upload, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export function Training() {
   const navigate = useNavigate();
   const { datasets } = useDatasetStore();
-  const { createConfig, startTraining } = useTrainingStore();
+  const { createConfig, startTraining, saveTemplate, loadTemplate, removeTemplate, getTemplates } = useTrainingStore();
 
   const [projectName, setProjectName] = useState('');
   const [yoloVersion, setYoloVersion] = useState<'v5' | 'v8' | 'v11'>('v8');
@@ -49,6 +66,92 @@ export function Training() {
   const [scale, setScale] = useState([0.5]);
   const [flipH, setFlipH] = useState(true);
   const [flipV, setFlipV] = useState(false);
+
+  // Template dialog states
+  const [isSaveTemplateOpen, setIsSaveTemplateOpen] = useState(false);
+  const [isLoadTemplateOpen, setIsLoadTemplateOpen] = useState(false);
+  const [templateName, setTemplateName] = useState('');
+  const templates = getTemplates();
+
+  const getCurrentConfig = () => ({
+    yoloVersion,
+    modelSize,
+    epochs: epochs[0],
+    batchSize,
+    imageSize,
+    device: 'cpu' as const,
+    workers: 4,
+    optimizer,
+    learningRate: learningRate[0],
+    momentum: momentum[0],
+    weightDecay: weightDecay[0],
+    patience: patience[0],
+    augmentation: {
+      mosaic,
+      mixup,
+      rotation: rotation[0],
+      hsvH: hsvH[0],
+      hsvS: hsvS[0],
+      hsvV: hsvV[0],
+      translate: translate[0],
+      scale: scale[0],
+      flipHorizontal: flipH,
+      flipVertical: flipV,
+    },
+  });
+
+  const handleSaveTemplate = () => {
+    if (!templateName.trim()) {
+      toast.error('請輸入模板名稱');
+      return;
+    }
+
+    const config = getCurrentConfig();
+    saveTemplate(templateName.trim(), config);
+    toast.success(`模板「${templateName}」已保存！`);
+    setTemplateName('');
+    setIsSaveTemplateOpen(false);
+  };
+
+  const handleLoadTemplate = (templateId: string) => {
+    const config = loadTemplate(templateId);
+    if (!config) {
+      toast.error('載入模板失敗');
+      return;
+    }
+
+    // Apply template to form
+    setYoloVersion(config.yoloVersion || 'v8');
+    setModelSize(config.modelSize || 'm');
+    setEpochs([config.epochs || 100]);
+    setBatchSize(config.batchSize || 16);
+    setImageSize(config.imageSize || 640);
+    setOptimizer(config.optimizer || 'Adam');
+    setLearningRate([config.learningRate || 0.01]);
+    setMomentum([config.momentum || 0.937]);
+    setWeightDecay([config.weightDecay || 0.0005]);
+    setPatience([config.patience || 50]);
+
+    if (config.augmentation) {
+      setMosaic(config.augmentation.mosaic);
+      setMixup(config.augmentation.mixup);
+      setRotation([config.augmentation.rotation]);
+      setTranslate([config.augmentation.translate]);
+      setScale([config.augmentation.scale]);
+      setFlipH(config.augmentation.flipHorizontal);
+      setFlipV(config.augmentation.flipVertical);
+    }
+
+    setIsLoadTemplateOpen(false);
+    const template = templates.find(t => t.id === templateId);
+    toast.success(`已載入模板「${template?.name}」`);
+  };
+
+  const handleDeleteTemplate = (templateId: string) => {
+    const template = templates.find(t => t.id === templateId);
+    removeTemplate(templateId);
+    toast.success(`模板「${template?.name}」已刪除`);
+  };
 
   const handleStartTraining = async () => {
     if (!projectName.trim()) {
@@ -118,7 +221,7 @@ export function Training() {
             訓練參數設置
           </CardTitle>
           <CardDescription>
-            設置模型訓練的各項參數（純前端模式為模擬訓練）
+            設置模型訓練的各項參數
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -339,8 +442,120 @@ export function Training() {
             </TabsContent>
           </Tabs>
 
-          <div className="mt-6 pt-6 border-t border-border flex justify-end gap-2">
-            <Button variant="outline">保存模板</Button>
+          <div className="mt-6 pt-6 border-t border-border flex justify-between gap-2">
+            <div className="flex gap-2">
+              <Dialog open={isSaveTemplateOpen} onOpenChange={setIsSaveTemplateOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline">
+                    <Save className="mr-2 h-4 w-4" />
+                    保存模板
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>保存訓練配置模板</DialogTitle>
+                    <DialogDescription>
+                      保存當前配置為模板，方便下次快速套用
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div>
+                      <Label>模板名稱</Label>
+                      <Input
+                        placeholder="例如：高精度配置、快速訓練配置"
+                        value={templateName}
+                        onChange={(e) => setTemplateName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleSaveTemplate();
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setIsSaveTemplateOpen(false);
+                        setTemplateName('');
+                      }}
+                    >
+                      取消
+                    </Button>
+                    <Button onClick={handleSaveTemplate}>保存</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              <Dialog open={isLoadTemplateOpen} onOpenChange={setIsLoadTemplateOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline">
+                    <Upload className="mr-2 h-4 w-4" />
+                    載入模板
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>載入訓練配置模板</DialogTitle>
+                    <DialogDescription>
+                      從已保存的模板快速套用配置
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-2">
+                    {templates.length === 0 ? (
+                      <div className="p-8 text-center text-muted-foreground">
+                        <p className="text-sm">沒有已保存的模板</p>
+                        <p className="text-xs mt-1">點擊「保存模板」來創建第一個模板</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-96 overflow-y-auto">
+                        {templates.map((template) => (
+                          <div
+                            key={template.id}
+                            className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors"
+                          >
+                            <div className="flex-1">
+                              <h4 className="font-medium">{template.name}</h4>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {template.yoloVersion}{template.modelSize} • {template.epochs} epochs • {template.optimizer}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {new Date(template.createdAt).toLocaleDateString('zh-TW')}
+                              </p>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                onClick={() => handleLoadTemplate(template.id)}
+                              >
+                                載入
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleDeleteTemplate(template.id)}
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsLoadTemplateOpen(false)}
+                    >
+                      關閉
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
+
             <Button size="lg" onClick={handleStartTraining}>
               <Play className="mr-2 h-5 w-5" />
               開始訓練

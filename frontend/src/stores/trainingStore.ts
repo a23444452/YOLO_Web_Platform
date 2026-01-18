@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import type { TrainingConfig, TrainingJob, TrainingMetrics } from '@/types';
+import { persist } from 'zustand/middleware';
+import type { TrainingConfig, TrainingJob, TrainingMetrics, TrainingConfigTemplate } from '@/types';
 import { DEFAULT_TRAINING_CONFIG } from '@/lib/constants';
 import { useDatasetStore } from './datasetStore';
 import { useAnnotationStore } from './annotationStore';
@@ -19,13 +20,21 @@ interface TrainingState {
   jobs: TrainingJob[];
   currentJobId: string | null;
   websockets: Map<string, WebSocketConnection>;
+  templates: TrainingConfigTemplate[];
 
-  // Actions
+  // Config Actions
   createConfig: (config: Partial<TrainingConfig>) => string;
   updateConfig: (id: string, updates: Partial<TrainingConfig>) => void;
   removeConfig: (id: string) => void;
   getConfigById: (id: string) => TrainingConfig | null;
 
+  // Template Actions
+  saveTemplate: (name: string, config: Partial<TrainingConfig>) => string;
+  loadTemplate: (templateId: string) => Partial<TrainingConfig> | null;
+  removeTemplate: (templateId: string) => void;
+  getTemplates: () => TrainingConfigTemplate[];
+
+  // Training Actions
   startTraining: (configId: string) => Promise<void>;
   stopTraining: (jobId: string) => Promise<void>;
   updateJobProgress: (jobId: string, progress: number, metrics: TrainingMetrics) => void;
@@ -36,11 +45,14 @@ interface TrainingState {
   getCurrentJob: () => TrainingJob | null;
 }
 
-export const useTrainingStore = create<TrainingState>((set, get) => ({
-  configs: [],
-  jobs: [],
-  currentJobId: null,
-  websockets: new Map(),
+export const useTrainingStore = create<TrainingState>()(
+  persist(
+    (set, get) => ({
+      configs: [],
+      jobs: [],
+      currentJobId: null,
+      websockets: new Map(),
+      templates: [],
 
   createConfig: (config: Partial<TrainingConfig>) => {
     const newConfig: TrainingConfig = {
@@ -298,4 +310,60 @@ export const useTrainingStore = create<TrainingState>((set, get) => ({
     const state = get();
     return state.jobs.find((job) => job.id === state.currentJobId) || null;
   },
-}));
+
+  // Template management
+  saveTemplate: (name: string, config: Partial<TrainingConfig>) => {
+    const template: TrainingConfigTemplate = {
+      id: crypto.randomUUID(),
+      name,
+      yoloVersion: config.yoloVersion || 'v8',
+      modelSize: config.modelSize || 'm',
+      epochs: config.epochs || DEFAULT_TRAINING_CONFIG.epochs,
+      batchSize: config.batchSize || DEFAULT_TRAINING_CONFIG.batchSize,
+      imageSize: config.imageSize || DEFAULT_TRAINING_CONFIG.imageSize,
+      device: config.device || DEFAULT_TRAINING_CONFIG.device,
+      workers: config.workers || DEFAULT_TRAINING_CONFIG.workers,
+      optimizer: config.optimizer || DEFAULT_TRAINING_CONFIG.optimizer,
+      learningRate: config.learningRate || DEFAULT_TRAINING_CONFIG.learningRate,
+      momentum: config.momentum || DEFAULT_TRAINING_CONFIG.momentum,
+      weightDecay: config.weightDecay || DEFAULT_TRAINING_CONFIG.weightDecay,
+      patience: config.patience || DEFAULT_TRAINING_CONFIG.patience,
+      augmentation: config.augmentation || DEFAULT_TRAINING_CONFIG.augmentation,
+      createdAt: new Date(),
+    };
+
+    set((state) => ({
+      templates: [...state.templates, template],
+    }));
+
+    return template.id;
+  },
+
+  loadTemplate: (templateId: string) => {
+    const template = get().templates.find((t) => t.id === templateId);
+    if (!template) return null;
+
+    // Return template data without id, name, and createdAt
+    const { id, name, createdAt, ...configData } = template;
+    return configData;
+  },
+
+  removeTemplate: (templateId: string) => {
+    set((state) => ({
+      templates: state.templates.filter((t) => t.id !== templateId),
+    }));
+  },
+
+  getTemplates: () => {
+    return get().templates;
+  },
+    }),
+    {
+      name: 'training-store',
+      partialize: (state) => ({
+        templates: state.templates,
+        // Don't persist configs, jobs, websockets
+      }),
+    }
+  )
+);

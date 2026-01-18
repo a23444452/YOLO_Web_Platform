@@ -47,25 +47,68 @@ class InferenceManager:
             logger.info("model_already_loaded", model_id=model_id)
             return
 
-        # Find model directory
+        # Check if it's an uploaded model or trained model
+        uploaded_dir = settings.training_dir / "uploaded_models" / model_id
         model_dir = settings.training_dir / model_id
-        if not model_dir.exists():
-            raise ModelNotFoundError(model_id)
 
-        # Find best.pt model file (in training/weights/ subdirectory)
-        model_path = model_dir / "training" / "weights" / "best.pt"
-        if not model_path.exists():
-            raise ModelFileNotFoundError(model_id, str(model_path))
+        is_uploaded = uploaded_dir.exists()
 
-        # Load model metadata from data.yaml (in dataset/ subdirectory)
-        data_yaml_path = model_dir / "dataset" / "data.yaml"
-        if not data_yaml_path.exists():
-            raise ModelFileNotFoundError(model_id, str(data_yaml_path))
+        if is_uploaded:
+            # Handle uploaded model
+            import json
 
-        with open(data_yaml_path) as f:
-            data_config = yaml.safe_load(f)
+            # Find model file (.pt or .onnx)
+            pt_path = uploaded_dir / "model.pt"
+            onnx_path = uploaded_dir / "model.onnx"
+            model_path = pt_path if pt_path.exists() else onnx_path if onnx_path.exists() else None
 
-        class_names = data_config.get("names", [])
+            if not model_path:
+                raise ModelFileNotFoundError(model_id, "model.pt or model.onnx")
+
+            # Read metadata
+            metadata_path = uploaded_dir / "metadata.json"
+            model_name = f"Uploaded {model_id}"
+            if metadata_path.exists():
+                try:
+                    with open(metadata_path) as f:
+                        metadata = json.load(f)
+                        model_name = metadata.get("name", model_name)
+                except Exception:
+                    pass
+
+            class_names = []  # Unknown for uploaded models
+
+        else:
+            # Handle trained model
+            if not model_dir.exists():
+                raise ModelNotFoundError(model_id)
+
+            # Find best.pt model file (in training/weights/ subdirectory)
+            model_path = model_dir / "training" / "weights" / "best.pt"
+            if not model_path.exists():
+                raise ModelFileNotFoundError(model_id, str(model_path))
+
+            # Load model metadata from data.yaml (in dataset/ subdirectory)
+            data_yaml_path = model_dir / "dataset" / "data.yaml"
+            if not data_yaml_path.exists():
+                raise ModelFileNotFoundError(model_id, str(data_yaml_path))
+
+            with open(data_yaml_path) as f:
+                data_config = yaml.safe_load(f)
+
+            class_names = data_config.get("names", [])
+
+            # Read project name from training config
+            import json
+            model_name = f"Model {model_id}"
+            config_path = model_dir / "training_config.json"
+            if config_path.exists():
+                try:
+                    with open(config_path) as f:
+                        config_data = json.load(f)
+                        model_name = config_data.get("name", model_name)
+                except Exception:
+                    pass
 
         # Load YOLO model
         try:
@@ -77,9 +120,9 @@ class InferenceManager:
             # Store model info
             self.model_info[model_id] = ModelInfo(
                 model_id=model_id,
-                name=f"Model {model_id}",
+                name=model_name,
                 yolo_version="v8",  # Default, should be read from metadata
-                model_size="n",  # Default, should be read from metadata
+                model_size="n" if not is_uploaded else "custom",
                 classes=class_names,
                 created_at=datetime.fromtimestamp(model_path.stat().st_mtime),
                 metrics=None,
@@ -90,6 +133,7 @@ class InferenceManager:
                 model_id=model_id,
                 model_path=str(model_path),
                 num_classes=len(class_names),
+                is_uploaded=is_uploaded,
             )
 
         except Exception as e:
@@ -268,26 +312,25 @@ class InferenceManager:
         """List all available models.
 
         Returns:
-            List of ModelInfo objects
+            List of ModelInfo objects (only the latest trained model + uploaded models)
         """
         available_models: list[ModelInfo] = []
 
-        # Scan training directory for completed models
-        if not settings.training_dir.exists():
-            return []
+        # Scan training directory for the LATEST completed model only
+        if settings.training_dir.exists():
+            latest_model: tuple[ModelInfo, float] | None = None  # (model_info, timestamp)
 
-        for model_dir in settings.training_dir.iterdir():
-            if not model_dir.is_dir():
-                continue
+            for model_dir in settings.training_dir.iterdir():
+                if not model_dir.is_dir():
+                    continue
 
-            model_id = model_dir.name
-            model_path = model_dir / "training" / "weights" / "best.pt"
+                model_id = model_dir.name
+                model_path = model_dir / "training" / "weights" / "best.pt"
 
-            if model_path.exists():
-                # Try to get cached info first
-                if model_id in self.model_info:
-                    available_models.append(self.model_info[model_id])
-                else:
+                if model_path.exists():
+                    # Get modification timestamp
+                    mtime = model_path.stat().st_mtime
+
                     # Load basic info without loading the full model
                     data_yaml_path = model_dir / "dataset" / "data.yaml"
                     class_names: list[str] = []
@@ -300,12 +343,73 @@ class InferenceManager:
                         except Exception:
                             pass
 
+                    # Read project name, YOLO version, and model size from training config
+                    import json
+                    project_name = f"Model {model_id}"
+                    yolo_version = "v8"  # default
+                    model_size = "n"     # default
+                    config_path = model_dir / "training_config.json"
+                    if config_path.exists():
+                        try:
+                            with open(config_path) as f:
+                                config_data = json.load(f)
+                                project_name = config_data.get("name", project_name)
+                                yolo_version = config_data.get("yolo_version", yolo_version)
+                                model_size = config_data.get("model_size", model_size)
+                        except Exception:
+                            pass
+
                     model_info = ModelInfo(
                         model_id=model_id,
-                        name=f"Model {model_id}",
-                        yolo_version="v8",
-                        model_size="n",
+                        name=project_name,
+                        yolo_version=yolo_version,
+                        model_size=model_size,
                         classes=class_names,
+                        created_at=datetime.fromtimestamp(mtime),
+                        metrics=None,
+                    )
+
+                    # Keep track of the latest model
+                    if latest_model is None or mtime > latest_model[1]:
+                        latest_model = (model_info, mtime)
+
+            # Add only the latest trained model
+            if latest_model is not None:
+                available_models.append(latest_model[0])
+
+        # Scan uploaded_models directory
+        uploaded_dir = settings.training_dir / "uploaded_models"
+        if uploaded_dir.exists():
+            import json
+            for model_dir in uploaded_dir.iterdir():
+                if not model_dir.is_dir():
+                    continue
+
+                model_id = model_dir.name
+
+                # Check for .pt or .onnx file
+                pt_path = model_dir / "model.pt"
+                onnx_path = model_dir / "model.onnx"
+                model_path = pt_path if pt_path.exists() else onnx_path if onnx_path.exists() else None
+
+                if model_path:
+                    # Read metadata
+                    metadata_path = model_dir / "metadata.json"
+                    model_name = f"Uploaded {model_id}"
+                    if metadata_path.exists():
+                        try:
+                            with open(metadata_path) as f:
+                                metadata = json.load(f)
+                                model_name = metadata.get("name", model_name)
+                        except Exception:
+                            pass
+
+                    model_info = ModelInfo(
+                        model_id=model_id,
+                        name=f"📁 {model_name}",  # Prefix to indicate uploaded model
+                        yolo_version="v8",
+                        model_size="custom",
+                        classes=[],  # Unknown classes for uploaded models
                         created_at=datetime.fromtimestamp(model_path.stat().st_mtime),
                         metrics=None,
                     )

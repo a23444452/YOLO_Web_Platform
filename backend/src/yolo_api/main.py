@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import structlog
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, BackgroundTasks, UploadFile, File, Form
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -494,6 +494,74 @@ async def list_available_models() -> ListModelsResponse:
     models = inference_manager.list_models()
     logger.info("list_inference_models", total=len(models))
     return ListModelsResponse(models=models, total=len(models))
+
+
+@app.post("/api/inference/upload-model")
+async def upload_model(
+    file: UploadFile = File(...),
+    model_name: str = Form(...),
+) -> dict[str, str]:
+    """Upload a local model file (.pt or .onnx) for inference.
+
+    Args:
+        file: Model file (.pt or .onnx)
+        model_name: Name for the uploaded model
+
+    Returns:
+        Success message with model_id
+
+    Raises:
+        HTTPException: If file type is invalid or upload fails
+    """
+    # Validate file extension
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
+
+    file_ext = file.filename.lower().split(".")[-1]
+    if file_ext not in ["pt", "onnx"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type: {file_ext}. Only .pt and .onnx files are supported."
+        )
+
+    try:
+        # Create uploaded_models directory
+        uploaded_dir = settings.training_dir / "uploaded_models"
+        uploaded_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate unique model ID
+        import uuid
+        model_id = f"uploaded_{uuid.uuid4().hex[:8]}"
+        model_dir = uploaded_dir / model_id
+        model_dir.mkdir(parents=True, exist_ok=True)
+
+        # Save model file
+        model_path = model_dir / f"model.{file_ext}"
+        with open(model_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+
+        # Save metadata
+        import json
+        metadata = {
+            "name": model_name,
+            "original_filename": file.filename,
+            "file_type": file_ext,
+            "uploaded_at": datetime.now().isoformat(),
+        }
+        metadata_path = model_dir / "metadata.json"
+        metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False))
+
+        logger.info("model_uploaded", model_id=model_id, name=model_name, file_type=file_ext)
+        return {
+            "message": "Model uploaded successfully",
+            "model_id": model_id,
+            "model_name": model_name,
+        }
+
+    except Exception as e:
+        logger.error("model_upload_failed", error=str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to upload model: {str(e)}")
 
 
 @app.post("/api/inference/load/{model_id}")

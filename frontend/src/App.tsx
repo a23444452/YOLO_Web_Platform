@@ -7,6 +7,8 @@ import { Dataset } from '@/pages/Dataset';
 import { Training } from '@/pages/Training';
 import { Inference } from '@/pages/Inference';
 import { Monitor } from '@/pages/Monitor';
+import { Settings } from '@/pages/Settings';
+import { Docs } from '@/pages/Docs';
 import { Toaster } from '@/components/ui/sonner';
 import { useAnnotationStore } from '@/stores/annotationStore';
 
@@ -28,6 +30,8 @@ function App() {
           <Route path="training" element={<Training />} />
           <Route path="inference" element={<Inference />} />
           <Route path="monitor" element={<Monitor />} />
+          <Route path="settings" element={<Settings />} />
+          <Route path="docs" element={<Docs />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

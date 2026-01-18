@@ -3,9 +3,11 @@ import { cn } from '@/lib/utils';
 import {
   Image,
   Database,
-  Settings,
+  Settings2,
   Sparkles,
   Activity,
+  BookOpen,
+  Settings,
 } from 'lucide-react';
 
 const navItems = [
@@ -22,7 +24,7 @@ const navItems = [
   {
     title: '訓練配置',
     href: '/training',
-    icon: Settings,
+    icon: Settings2,
   },
   {
     title: '訓練監控',
@@ -33,6 +35,19 @@ const navItems = [
     title: '推論測試',
     href: '/inference',
     icon: Sparkles,
+  },
+];
+
+const secondaryNavItems = [
+  {
+    title: '文檔說明',
+    href: '/docs',
+    icon: BookOpen,
+  },
+  {
+    title: '設置',
+    href: '/settings',
+    icon: Settings,
   },
 ];
 
@@ -50,9 +65,33 @@ export function Sidebar({ className }: SidebarProps) {
         className
       )}
     >
-      <nav className="flex-1 p-4">
+      <nav className="flex-1 p-4 flex flex-col">
         <div className="space-y-1">
           {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = location.pathname === item.href;
+
+            return (
+              <Link
+                key={item.href}
+                to={item.href}
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                  isActive
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                )}
+              >
+                <Icon className="h-5 w-5" />
+                {item.title}
+              </Link>
+            );
+          })}
+        </div>
+
+        <div className="mt-auto pt-4 space-y-1">
+          <div className="text-xs text-muted-foreground px-3 py-2">其他</div>
+          {secondaryNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.href;
 
@@ -78,7 +117,7 @@ export function Sidebar({ className }: SidebarProps) {
       <div className="p-4 border-t border-border">
         <div className="text-xs text-muted-foreground space-y-1">
           <p>版本: 1.0.0</p>
-          <p>純前端模式</p>
+          <p>YOLO Web Platform</p>
         </div>
       </div>
     </aside>
