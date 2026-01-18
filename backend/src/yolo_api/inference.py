@@ -52,13 +52,13 @@ class InferenceManager:
         if not model_dir.exists():
             raise ModelNotFoundError(model_id)
 
-        # Find best.pt model file
-        model_path = model_dir / "weights" / "best.pt"
+        # Find best.pt model file (in training/weights/ subdirectory)
+        model_path = model_dir / "training" / "weights" / "best.pt"
         if not model_path.exists():
             raise ModelFileNotFoundError(model_id, str(model_path))
 
-        # Load model metadata from data.yaml
-        data_yaml_path = model_dir / "data.yaml"
+        # Load model metadata from data.yaml (in dataset/ subdirectory)
+        data_yaml_path = model_dir / "dataset" / "data.yaml"
         if not data_yaml_path.exists():
             raise ModelFileNotFoundError(model_id, str(data_yaml_path))
 
@@ -281,7 +281,7 @@ class InferenceManager:
                 continue
 
             model_id = model_dir.name
-            model_path = model_dir / "weights" / "best.pt"
+            model_path = model_dir / "training" / "weights" / "best.pt"
 
             if model_path.exists():
                 # Try to get cached info first
@@ -289,7 +289,7 @@ class InferenceManager:
                     available_models.append(self.model_info[model_id])
                 else:
                     # Load basic info without loading the full model
-                    data_yaml_path = model_dir / "data.yaml"
+                    data_yaml_path = model_dir / "dataset" / "data.yaml"
                     class_names: list[str] = []
 
                     if data_yaml_path.exists():
