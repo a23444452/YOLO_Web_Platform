@@ -328,6 +328,9 @@ export const useTrainingStore = create<TrainingState>()(
       momentum: config.momentum || DEFAULT_TRAINING_CONFIG.momentum,
       weightDecay: config.weightDecay || DEFAULT_TRAINING_CONFIG.weightDecay,
       patience: config.patience || DEFAULT_TRAINING_CONFIG.patience,
+      cosineLR: config.cosineLR ?? DEFAULT_TRAINING_CONFIG.cosineLR,
+      rect: config.rect ?? DEFAULT_TRAINING_CONFIG.rect,
+      cache: config.cache ?? DEFAULT_TRAINING_CONFIG.cache,
       augmentation: config.augmentation || DEFAULT_TRAINING_CONFIG.augmentation,
       createdAt: new Date(),
     };

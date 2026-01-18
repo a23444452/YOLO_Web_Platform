@@ -50,13 +50,16 @@ export interface TrainingConfig {
   epochs: number;
   batchSize: number;
   imageSize: number;
-  device: 'cpu' | 'gpu';
+  device: 'auto' | 'cpu' | 'gpu';
   workers: number;
   optimizer: 'Adam' | 'SGD' | 'AdamW';
   learningRate: number;
   momentum: number;
   weightDecay: number;
   patience: number;
+  cosineLR: boolean;
+  rect: boolean;
+  cache: boolean;
   augmentation: {
     mosaic: boolean;
     mixup: boolean;
@@ -145,13 +148,16 @@ export interface TrainingConfigTemplate {
   epochs: number;
   batchSize: number;
   imageSize: number;
-  device: 'cpu' | 'gpu';
+  device: 'auto' | 'cpu' | 'gpu';
   workers: number;
   optimizer: 'Adam' | 'SGD' | 'AdamW';
   learningRate: number;
   momentum: number;
   weightDecay: number;
   patience: number;
+  cosineLR: boolean;
+  rect: boolean;
+  cache: boolean;
   augmentation: {
     mosaic: boolean;
     mixup: boolean;

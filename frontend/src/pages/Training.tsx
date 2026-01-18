@@ -49,11 +49,16 @@ export function Training() {
   const [epochs, setEpochs] = useState([100]);
   const [batchSize, setBatchSize] = useState(16);
   const [imageSize, setImageSize] = useState(640);
+  const [device, setDevice] = useState<'auto' | 'cpu' | 'gpu'>('auto');
+  const [workers, setWorkers] = useState([4]);
   const [optimizer, setOptimizer] = useState<'Adam' | 'SGD' | 'AdamW'>('Adam');
   const [learningRate, setLearningRate] = useState([0.01]);
   const [momentum, setMomentum] = useState([0.937]);
   const [weightDecay, setWeightDecay] = useState([0.0005]);
   const [patience, setPatience] = useState([50]);
+  const [cosineLR, setCosineLR] = useState(false);
+  const [rect, setRect] = useState(false);
+  const [cache, setCache] = useState(false);
 
   // 數據增強
   const [mosaic, setMosaic] = useState(true);
@@ -79,13 +84,16 @@ export function Training() {
     epochs: epochs[0],
     batchSize,
     imageSize,
-    device: 'cpu' as const,
-    workers: 4,
+    device,
+    workers: workers[0],
     optimizer,
     learningRate: learningRate[0],
     momentum: momentum[0],
     weightDecay: weightDecay[0],
     patience: patience[0],
+    cosineLR,
+    rect,
+    cache,
     augmentation: {
       mosaic,
       mixup,
@@ -126,11 +134,16 @@ export function Training() {
     setEpochs([config.epochs || 100]);
     setBatchSize(config.batchSize || 16);
     setImageSize(config.imageSize || 640);
+    setDevice(config.device || 'auto');
+    setWorkers([config.workers || 4]);
     setOptimizer(config.optimizer || 'Adam');
     setLearningRate([config.learningRate || 0.01]);
     setMomentum([config.momentum || 0.937]);
     setWeightDecay([config.weightDecay || 0.0005]);
     setPatience([config.patience || 50]);
+    setCosineLR(config.cosineLR || false);
+    setRect(config.rect || false);
+    setCache(config.cache || false);
 
     if (config.augmentation) {
       setMosaic(config.augmentation.mosaic);
@@ -173,13 +186,16 @@ export function Training() {
         epochs: epochs[0],
         batchSize,
         imageSize,
-        device: 'cpu',
-        workers: 4,
+        device,
+        workers: workers[0],
         optimizer,
         learningRate: learningRate[0],
         momentum: momentum[0],
         weightDecay: weightDecay[0],
         patience: patience[0],
+        cosineLR,
+        rect,
+        cache,
         augmentation: {
           mosaic,
           mixup,
@@ -380,24 +396,57 @@ export function Training() {
             </TabsContent>
 
             <TabsContent value="advanced" className="space-y-4">
-              <div>
-                <Label htmlFor="optimizer">優化器</Label>
-                <Select value={optimizer} onValueChange={(v: any) => setOptimizer(v)}>
-                  <SelectTrigger id="optimizer">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {OPTIMIZERS.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="device">訓練裝置 (Device)</Label>
+                  <Select value={device} onValueChange={(v: any) => setDevice(v)}>
+                    <SelectTrigger id="device">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">Auto (自動選擇)</SelectItem>
+                      <SelectItem value="cpu">CPU</SelectItem>
+                      <SelectItem value="gpu">GPU</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Auto 會自動選擇可用的最佳裝置
+                  </p>
+                </div>
+
+                <div>
+                  <Label htmlFor="optimizer">優化器 (Optimizer)</Label>
+                  <Select value={optimizer} onValueChange={(v: any) => setOptimizer(v)}>
+                    <SelectTrigger id="optimizer">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {OPTIMIZERS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
               <div>
-                <Label>Learning Rate: {learningRate[0].toFixed(4)}</Label>
+                <Label>資料載入執行緒數 (Workers): {workers[0]}</Label>
+                <Slider
+                  value={workers}
+                  onValueChange={setWorkers}
+                  min={0}
+                  max={16}
+                  step={1}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  建議設為 CPU 核心數，0 表示自動選擇
+                </p>
+              </div>
+
+              <div>
+                <Label>初始學習率 (LR0): {learningRate[0].toFixed(4)}</Label>
                 <Slider
                   value={learningRate}
                   onValueChange={setLearningRate}
@@ -405,6 +454,16 @@ export function Training() {
                   max={0.1}
                   step={0.0001}
                 />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label htmlFor="cosine-lr">餘弦退火學習率 (Cosine LR)</Label>
+                  <p className="text-xs text-muted-foreground">
+                    使用餘弦退火策略調整學習率
+                  </p>
+                </div>
+                <Switch id="cosine-lr" checked={cosineLR} onCheckedChange={setCosineLR} />
               </div>
 
               <div>
@@ -438,6 +497,30 @@ export function Training() {
                   max={100}
                   step={5}
                 />
+              </div>
+
+              <div className="pt-4 border-t border-border space-y-4">
+                <h4 className="font-semibold text-sm">優化選項</h4>
+
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label htmlFor="rect">矩形訓練 (Rectangular Training)</Label>
+                    <p className="text-xs text-muted-foreground">
+                      適合非正方形圖片，減少填充區域
+                    </p>
+                  </div>
+                  <Switch id="rect" checked={rect} onCheckedChange={setRect} />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label htmlFor="cache">快取圖片至記憶體 (Cache)</Label>
+                    <p className="text-xs text-muted-foreground">
+                      將圖片快取至 RAM 以加速訓練（需足夠記憶體）
+                    </p>
+                  </div>
+                  <Switch id="cache" checked={cache} onCheckedChange={setCache} />
+                </div>
               </div>
             </TabsContent>
           </Tabs>

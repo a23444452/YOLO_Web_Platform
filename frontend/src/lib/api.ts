@@ -14,13 +14,16 @@ export interface BackendTrainingConfig {
   epochs: number;
   batch_size: number;
   image_size: number;
-  device: 'cpu' | 'cuda' | 'mps';
+  device: 'cpu' | 'cuda' | 'mps' | 'auto';
   workers: number;
   optimizer: 'Adam' | 'SGD' | 'AdamW';
   learning_rate: number;
   momentum: number;
   weight_decay: number;
   patience: number;
+  cos_lr: boolean;
+  rect: boolean;
+  cache: boolean;
   augmentation: {
     mosaic: boolean;
     mixup: boolean;
@@ -69,6 +72,17 @@ export interface WSMessage {
 export function convertToBackendConfig(
   config: TrainingConfig
 ): BackendTrainingConfig {
+  // 將前端的 device 設定映射到後端格式
+  let backendDevice: 'cpu' | 'cuda' | 'mps' | 'auto' = 'auto';
+  if (config.device === 'cpu') {
+    backendDevice = 'cpu';
+  } else if (config.device === 'gpu') {
+    // 前端的 'gpu' 在後端可能是 'cuda' 或 'mps'，讓後端自動選擇
+    backendDevice = 'auto';
+  } else if (config.device === 'auto') {
+    backendDevice = 'auto';
+  }
+
   return {
     name: config.name,
     yolo_version: config.yoloVersion,
@@ -77,13 +91,16 @@ export function convertToBackendConfig(
     epochs: config.epochs,
     batch_size: config.batchSize,
     image_size: config.imageSize,
-    device: config.device,
+    device: backendDevice,
     workers: config.workers,
     optimizer: config.optimizer,
     learning_rate: config.learningRate,
     momentum: config.momentum,
     weight_decay: config.weightDecay,
     patience: config.patience,
+    cos_lr: config.cosineLR,
+    rect: config.rect,
+    cache: config.cache,
     augmentation: {
       mosaic: config.augmentation.mosaic,
       mixup: config.augmentation.mixup,

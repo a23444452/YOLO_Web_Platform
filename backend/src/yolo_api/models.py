@@ -50,13 +50,16 @@ class TrainingConfig(BaseModel):
     epochs: int = Field(100, ge=1, le=1000)
     batch_size: int = Field(16, ge=1, le=128)
     image_size: int = Field(640, ge=320, le=1280)
-    device: Literal["cpu", "cuda", "mps"] = "cpu"
+    device: Literal["cpu", "cuda", "mps", "auto"] = "auto"
     workers: int = Field(4, ge=0, le=16)
     optimizer: Literal["Adam", "SGD", "AdamW"] = "Adam"
     learning_rate: float = Field(0.01, gt=0, le=1)
     momentum: float = Field(0.937, ge=0, le=1)
     weight_decay: float = Field(0.0005, ge=0, le=0.01)
     patience: int = Field(50, ge=5, le=100)
+    cos_lr: bool = Field(False, description="Use cosine learning rate scheduler")
+    rect: bool = Field(False, description="Rectangular training for non-square images")
+    cache: bool = Field(False, description="Cache images to RAM for faster training")
     augmentation: AugmentationConfig
 
 

@@ -307,19 +307,35 @@ class TrainingManager:
             for event, callback in custom_callbacks.items():
                 model.add_callback(event, callback)
 
+            # Determine device (auto selection if needed)
+            device = config.device
+            if device == "auto":
+                import torch
+                if torch.cuda.is_available():
+                    device = "cuda"
+                elif torch.backends.mps.is_available():
+                    device = "mps"
+                else:
+                    device = "cpu"
+                print(f"Auto-selected device: {device}")
+
             # Train with ultralytics
             model.train(
                 data=str(data_yaml),
                 epochs=config.epochs,
                 batch=config.batch_size,
                 imgsz=config.image_size,
-                device=config.device,
+                device=device,
                 workers=config.workers,
                 optimizer=config.optimizer,
                 lr0=config.learning_rate,
                 momentum=config.momentum,
                 weight_decay=config.weight_decay,
                 patience=config.patience,
+                # Advanced settings
+                cos_lr=config.cos_lr,
+                rect=config.rect,
+                cache=config.cache,
                 # Augmentation
                 mosaic=1.0 if config.augmentation.mosaic else 0.0,
                 mixup=0.1 if config.augmentation.mixup else 0.0,
