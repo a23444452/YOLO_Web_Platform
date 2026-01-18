@@ -8,11 +8,11 @@ from typing import Any
 
 import structlog
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, BackgroundTasks
-from fastapi.background import BackgroundTask
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import ValidationError
+from starlette.background import BackgroundTask
 
 from .config import settings
 from .dependencies import TrainingManagerDep
