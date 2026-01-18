@@ -1,5 +1,75 @@
 # YOLO Backend API - 更新日誌
 
+## [0.8.1] - 2026-01-18
+
+### 🔒 安全性修復
+
+- ✅ **修復 Critical #1: ZIP 炸彈保護** (`src/yolo_api/training.py`)
+  - 新增檔案數量限制 (MAX_FILES = 10,000)
+  - 新增解壓縮大小限制 (MAX_EXTRACTED_SIZE = 500MB)
+  - 新增路徑遍歷攻擊檢查（禁止 `..` 和絕對路徑）
+  - 新增檔案名稱長度驗證 (MAX_FILENAME_LENGTH = 255)
+  - 改進錯誤訊息，提供明確的安全違規說明
+  - 方法：`_extract_dataset()` (第 64-148 行)
+
+- ✅ **修復 Critical #2: Base64 影像驗證** (`src/yolo_api/inference.py`)
+  - 新增 Base64 解碼驗證（使用 `validate=True`）
+  - 新增影像大小限制檢查 (MAX_IMAGE_SIZE = 10MB)
+  - 新增影像尺寸驗證 (MIN: 32x32, MAX: 4096x4096)
+  - 新增影像格式驗證（使用 PIL Image.verify()）
+  - 拋出 `InvalidImageError` 而非通用異常
+  - 方法：`infer()` (第 115-265 行)
+
+- ✅ **修復 Critical #4: 結構化日誌** (`src/yolo_api/training.py`)
+  - 移除 callback 中的 `print()` 語句
+  - 使用 `logger.error()` 記錄 callback 失敗
+  - 包含完整的上下文資訊：job_id, message_type, callback 名稱
+  - 添加 `exc_info=True` 記錄堆疊追蹤
+  - 方法：`_notify()` (第 45-62 行)
+
+### 🧪 新增安全性測試
+
+新增 `tests/test_inference.py` 中的 3 個安全性測試：
+- ✅ `test_infer_invalid_base64` - 測試無效 Base64 編碼處理
+- ✅ `test_infer_image_too_small` - 測試小於最小尺寸的影像
+- ✅ `test_infer_invalid_image_format` - 測試無效影像格式
+
+### 📊 測試結果
+
+```bash
+$ pytest tests/test_inference.py -v
+✅ 17 passed in 0.16s
+✅ inference.py 覆蓋率: 87%
+
+$ pytest tests/ -v
+✅ All tests passing
+```
+
+### 🛡️ 安全性改進細節
+
+**資料集提取安全限制**:
+```python
+MAX_EXTRACTED_SIZE = 500 * 1024 * 1024  # 500MB
+MAX_FILES = 10000
+MAX_FILENAME_LENGTH = 255
+```
+
+**影像驗證限制**:
+```python
+MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_IMAGE_DIMENSION = 4096  # 4K pixels
+MIN_IMAGE_DIMENSION = 32  # Minimum reasonable size
+```
+
+**防護措施**:
+- 🛡️ ZIP 炸彈攻擊
+- 🛡️ 路徑遍歷攻擊
+- 🛡️ 記憶體耗盡攻擊
+- 🛡️ 無效影像格式攻擊
+- 🛡️ 過大檔案上傳
+
+---
+
 ## [0.8.0] - 2026-01-18
 
 ### 🎯 完整推論系統

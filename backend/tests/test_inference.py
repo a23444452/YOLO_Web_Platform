@@ -140,10 +140,10 @@ class TestInferenceManager:
             created_at="2024-01-01T00:00:00",  # type: ignore
         )
 
-        # Create a simple test image (1x1 red pixel)
+        # Create a test image (64x64 red square - meets minimum size requirement)
         from PIL import Image
 
-        img = Image.new("RGB", (1, 1), color="red")
+        img = Image.new("RGB", (64, 64), color="red")
         from io import BytesIO
 
         buffer = BytesIO()
@@ -158,6 +158,7 @@ class TestInferenceManager:
         assert result.detections[0].class_name == "person"
         assert result.detections[0].confidence == 0.95
         assert result.inference_time > 0
+        assert result.image_size == (64, 64)
 
     def test_list_models_empty(self, tmp_path: Path) -> None:
         """Test listing models when no models exist."""
@@ -191,6 +192,79 @@ class TestInferenceManager:
             assert len(models) == 1
             assert models[0].model_id == "model1"
             assert models[0].classes == ["cat", "dog"]
+
+    def test_infer_invalid_base64(self) -> None:
+        """Test inference with invalid base64."""
+        from yolo_api.exceptions import InvalidImageError
+
+        manager = InferenceManager()
+        manager.models["test_model"] = Mock()
+        manager.model_info["test_model"] = ModelInfo(
+            model_id="test_model",
+            name="Test Model",
+            yolo_version="v8",
+            model_size="n",
+            classes=["person"],
+            created_at="2024-01-01T00:00:00",  # type: ignore
+        )
+
+        # Invalid base64
+        with pytest.raises(InvalidImageError) as exc_info:
+            manager.infer("test_model", "not-valid-base64!!!", 0.25, 0.45)
+
+        assert "Invalid base64 encoding" in str(exc_info.value)
+
+    def test_infer_image_too_small(self) -> None:
+        """Test inference with image smaller than minimum size."""
+        from yolo_api.exceptions import InvalidImageError
+        from PIL import Image
+        from io import BytesIO
+
+        manager = InferenceManager()
+        manager.models["test_model"] = Mock()
+        manager.model_info["test_model"] = ModelInfo(
+            model_id="test_model",
+            name="Test Model",
+            yolo_version="v8",
+            model_size="n",
+            classes=["person"],
+            created_at="2024-01-01T00:00:00",  # type: ignore
+        )
+
+        # Create 16x16 image (below 32x32 minimum)
+        img = Image.new("RGB", (16, 16), color="red")
+        buffer = BytesIO()
+        img.save(buffer, format="PNG")
+        img_base64 = base64.b64encode(buffer.getvalue()).decode()
+
+        with pytest.raises(InvalidImageError) as exc_info:
+            manager.infer("test_model", img_base64, 0.25, 0.45)
+
+        assert "Image too small" in str(exc_info.value)
+        assert "16x16" in str(exc_info.value)
+
+    def test_infer_invalid_image_format(self) -> None:
+        """Test inference with invalid image data."""
+        from yolo_api.exceptions import InvalidImageError
+
+        manager = InferenceManager()
+        manager.models["test_model"] = Mock()
+        manager.model_info["test_model"] = ModelInfo(
+            model_id="test_model",
+            name="Test Model",
+            yolo_version="v8",
+            model_size="n",
+            classes=["person"],
+            created_at="2024-01-01T00:00:00",  # type: ignore
+        )
+
+        # Valid base64 but not an image
+        invalid_data = base64.b64encode(b"not an image file").decode()
+
+        with pytest.raises(InvalidImageError) as exc_info:
+            manager.infer("test_model", invalid_data, 0.25, 0.45)
+
+        assert "Invalid or unsupported image format" in str(exc_info.value)
 
 
 class TestInferenceAPI:

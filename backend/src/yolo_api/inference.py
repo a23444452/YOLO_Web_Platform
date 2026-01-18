@@ -14,6 +14,7 @@ from PIL import Image
 from .config import settings
 from .exceptions import (
     InferenceError,
+    InvalidImageError,
     ModelFileNotFoundError,
     ModelNotFoundError,
     ModelNotReadyError,
@@ -118,7 +119,7 @@ class InferenceManager:
         confidence: float = 0.25,
         iou: float = 0.45,
     ) -> InferenceResponse:
-        """Run inference on an image.
+        """Run inference on an image with security validations.
 
         Args:
             model_id: Model identifier
@@ -131,6 +132,7 @@ class InferenceManager:
 
         Raises:
             ModelNotFoundError: If model not loaded
+            InvalidImageError: If image is invalid or too large
             InferenceError: If inference fails
         """
         # Ensure model is loaded
@@ -140,17 +142,60 @@ class InferenceManager:
         model = self.models[model_id]
         model_metadata = self.model_info[model_id]
 
+        # Security limits
+        MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
+        MAX_IMAGE_DIMENSION = 4096  # 4K pixels
+        MIN_IMAGE_DIMENSION = 32  # Minimum reasonable size
+
         try:
-            # Decode base64 image
-            image_bytes = base64.b64decode(image_b64)
-            image = Image.open(BytesIO(image_bytes))
+            # Decode base64 image with validation
+            try:
+                image_bytes = base64.b64decode(image_b64, validate=True)
+            except Exception as e:
+                raise InvalidImageError(
+                    f"Invalid base64 encoding: {str(e)[:100]}"
+                ) from e
+
+            # Check decoded size
+            if len(image_bytes) > MAX_IMAGE_SIZE:
+                size_mb = len(image_bytes) / 1024 / 1024
+                raise InvalidImageError(
+                    f"Image too large: {size_mb:.1f}MB (max 10MB)"
+                )
+
+            # Validate image format
+            try:
+                image = Image.open(BytesIO(image_bytes))
+                image.verify()  # Verify it's a valid image
+                # Reopen after verify (verify() invalidates the image)
+                image = Image.open(BytesIO(image_bytes))
+            except (OSError, Image.UnidentifiedImageError) as e:
+                raise InvalidImageError(
+                    f"Invalid or unsupported image format: {str(e)[:100]}"
+                ) from e
+
+            # Validate image dimensions
+            width, height = image.size
+            if width < MIN_IMAGE_DIMENSION or height < MIN_IMAGE_DIMENSION:
+                raise InvalidImageError(
+                    f"Image too small: {width}x{height} "
+                    f"(min {MIN_IMAGE_DIMENSION}x{MIN_IMAGE_DIMENSION})"
+                )
+
+            if width > MAX_IMAGE_DIMENSION or height > MAX_IMAGE_DIMENSION:
+                raise InvalidImageError(
+                    f"Image too large: {width}x{height} "
+                    f"(max {MAX_IMAGE_DIMENSION}x{MAX_IMAGE_DIMENSION})"
+                )
+
+            # Convert to numpy array
             image_np = np.array(image)
 
             # Convert RGB to BGR for OpenCV
             if len(image_np.shape) == 3 and image_np.shape[2] == 3:
                 image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
 
-            original_size = (image.width, image.height)
+            original_size = (width, height)
 
             # Run inference
             start_time = time.time()
@@ -198,6 +243,7 @@ class InferenceManager:
                 model_id=model_id,
                 num_detections=len(detections),
                 inference_time_ms=round(inference_time, 2),
+                image_size=f"{original_size[0]}x{original_size[1]}",
             )
 
             return InferenceResponse(
@@ -206,6 +252,9 @@ class InferenceManager:
                 image_size=original_size,
             )
 
+        except InvalidImageError:
+            # Re-raise image validation errors without wrapping
+            raise
         except Exception as e:
             logger.error(
                 "inference_failed",

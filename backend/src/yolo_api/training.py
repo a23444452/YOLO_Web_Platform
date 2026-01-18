@@ -43,28 +43,107 @@ class TrainingManager:
         self.callbacks[job_id].append(callback)
 
     async def _notify(self, job_id: str, message: dict[str, Any]) -> None:
-        """Notify all callbacks for a job."""
+        """Notify all callbacks for a job with proper error logging."""
         if job_id in self.callbacks:
             for callback in self.callbacks[job_id]:
                 try:
                     await callback(message)
                 except Exception as e:
-                    print(f"Callback error: {e}")
+                    # Use structured logging instead of print
+                    from .logging_config import logger
+
+                    logger.error(
+                        "callback_notification_failed",
+                        job_id=job_id,
+                        message_type=message.get("type"),
+                        callback=callback.__name__ if hasattr(callback, "__name__") else str(callback),
+                        error=str(e),
+                        exc_info=True,
+                    )
 
     def _extract_dataset(self, dataset_zip_b64: str, job_dir: Path) -> Path:
-        """Extract dataset ZIP to job directory."""
+        """Extract dataset ZIP to job directory with security checks.
+
+        Args:
+            dataset_zip_b64: Base64 encoded ZIP file
+            job_dir: Job directory path
+
+        Returns:
+            Path to extracted dataset directory
+
+        Raises:
+            DatasetValidationError: If ZIP file fails security checks
+            DatasetExtractionError: If extraction fails
+        """
         import zipfile
         from io import BytesIO
 
-        # Decode base64
-        zip_data = base64.b64decode(dataset_zip_b64)
+        from .exceptions import DatasetExtractionError, DatasetValidationError
+
+        # Security limits
+        MAX_EXTRACTED_SIZE = 500 * 1024 * 1024  # 500MB
+        MAX_FILES = 10000
+        MAX_FILENAME_LENGTH = 255
+
+        try:
+            # Decode base64
+            zip_data = base64.b64decode(dataset_zip_b64)
+        except Exception as e:
+            raise DatasetExtractionError(f"Invalid base64 encoding: {e}") from e
 
         # Extract ZIP
         dataset_dir = job_dir / "dataset"
         dataset_dir.mkdir(parents=True, exist_ok=True)
 
-        with zipfile.ZipFile(BytesIO(zip_data)) as zf:
-            zf.extractall(dataset_dir)
+        try:
+            with zipfile.ZipFile(BytesIO(zip_data)) as zf:
+                # Security check 1: File count
+                file_count = len(zf.namelist())
+                if file_count > MAX_FILES:
+                    raise DatasetValidationError(
+                        f"Too many files in ZIP: {file_count} (max {MAX_FILES})"
+                    )
+
+                # Security check 2: Total extracted size
+                total_size = sum(info.file_size for info in zf.infolist())
+                if total_size > MAX_EXTRACTED_SIZE:
+                    size_mb = total_size / 1024 / 1024
+                    max_mb = MAX_EXTRACTED_SIZE / 1024 / 1024
+                    raise DatasetValidationError(
+                        f"Extracted size too large: {size_mb:.1f}MB (max {max_mb:.0f}MB)"
+                    )
+
+                # Security check 3: Path traversal and filename validation
+                for name in zf.namelist():
+                    # Check for path traversal
+                    if name.startswith("/") or ".." in name:
+                        raise DatasetValidationError(
+                            f"Invalid path in ZIP (path traversal attempt): {name}"
+                        )
+
+                    # Check for absolute paths
+                    if Path(name).is_absolute():
+                        raise DatasetValidationError(
+                            f"Absolute path not allowed in ZIP: {name}"
+                        )
+
+                    # Check filename length
+                    if len(Path(name).name) > MAX_FILENAME_LENGTH:
+                        raise DatasetValidationError(
+                            f"Filename too long: {Path(name).name[:50]}... "
+                            f"(max {MAX_FILENAME_LENGTH} chars)"
+                        )
+
+                # Extract all files (now validated)
+                zf.extractall(dataset_dir)
+
+        except zipfile.BadZipFile as e:
+            raise DatasetExtractionError(f"Invalid or corrupted ZIP file: {e}") from e
+        except (DatasetValidationError, DatasetExtractionError):
+            # Re-raise our custom exceptions
+            raise
+        except Exception as e:
+            raise DatasetExtractionError(f"Failed to extract dataset: {e}") from e
 
         return dataset_dir
 
