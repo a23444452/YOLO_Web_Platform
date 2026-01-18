@@ -46,6 +46,44 @@ logs/
 /backend/training_jobs/
 /datasets/*/runs/
 
+# Dataset files (images and annotations)
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.webp
+*.tiff
+*.svg
+*.txt
+!requirements.txt
+!package.json
+!tsconfig.json
+!vite.config.ts
+!*.config.ts
+!*.config.js
+!README*.txt
+
+# Compressed files
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# Model files
+*.pt
+*.pth
+*.onnx
+*.tflite
+*.pb
+
+# Dataset directories
+/datasets/
+/data/
+/images/
+/labels/
+
 # Temporary files
 *.tmp
 *.temp
