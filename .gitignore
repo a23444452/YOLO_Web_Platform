@@ -41,6 +41,7 @@ logs/
 
 # Training outputs
 /backend/*.pt
+/backend/weights/
 /backend/runs/
 /backend/yolo_training/
 /backend/training_jobs/
