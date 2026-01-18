@@ -285,8 +285,17 @@ class TrainingManager:
             version = config.yolo_version.lstrip("v")
             model_name = f"yolo{version}{config.model_size}.pt"
 
+            # Get model path from weights directory
+            from pathlib import Path
+            weights_dir = Path(__file__).parent.parent.parent / "weights"
+            model_path = weights_dir / model_name
+
             # Initialize YOLO model
-            model = YOLO(model_name)
+            if model_path.exists():
+                model = YOLO(str(model_path))
+            else:
+                # Fallback to model name (will download if not found)
+                model = YOLO(model_name)
 
             # Setup callbacks
             custom_callbacks = self._setup_callbacks(job_id, config)
