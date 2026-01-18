@@ -617,6 +617,7 @@ export const useAnnotationStore = create<AnnotationState>((set, get) => ({
                   id: crypto.randomUUID(),
                   classId,
                   className: classObj.name,
+                  color: classObj.color,
                   x,
                   y,
                   width: w,
