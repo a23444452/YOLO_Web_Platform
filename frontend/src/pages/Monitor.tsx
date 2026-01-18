@@ -18,12 +18,12 @@ import { toast } from 'sonner';
 import { downloadModel, downloadTrainingPackage, exportTrainingToFolder } from '@/lib/api';
 
 export function Monitor() {
-  const { currentJobId, stopTraining, getCurrentJob, getConfig } = useTrainingStore();
+  const { currentJobId, stopTraining, getCurrentJob, getConfigById } = useTrainingStore();
   const currentJob = getCurrentJob();
   const [isExporting, setIsExporting] = useState(false);
 
   // Get project name from config
-  const config = currentJob?.configId ? getConfig(currentJob.configId) : null;
+  const config = currentJob?.configId ? getConfigById(currentJob.configId) : null;
   const projectName = config?.name || 'yolo_training';
 
   useEffect(() => {
