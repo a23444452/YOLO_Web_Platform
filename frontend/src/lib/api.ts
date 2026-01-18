@@ -390,6 +390,89 @@ export async function downloadModel(jobId: string): Promise<void> {
 }
 
 /**
+ * Download complete training package (models + charts + configs)
+ */
+export async function downloadTrainingPackage(jobId: string, projectName?: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/training/${jobId}/download-all`);
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  // Download ZIP file
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = projectName ? `${projectName}_training.zip` : `yolo_training_${jobId}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+}
+
+/**
+ * Export training package to local folder using File System Access API
+ */
+export async function exportTrainingToFolder(jobId: string, projectName: string): Promise<{ filesWritten: number }> {
+  // Check browser support
+  if (!('showDirectoryPicker' in window)) {
+    throw new Error('您的瀏覽器不支援此功能，請使用 Chrome 或 Edge，或選擇下載 ZIP');
+  }
+
+  // Request directory access
+  const dirHandle = await (window as any).showDirectoryPicker({
+    mode: 'readwrite',
+  });
+
+  // Download training package
+  const response = await fetch(`${API_BASE_URL}/api/training/${jobId}/download-all`);
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  const blob = await response.blob();
+
+  // Extract ZIP and write files
+  const JSZip = (await import('jszip')).default;
+  const zip = await JSZip.loadAsync(blob);
+
+  let filesWritten = 0;
+
+  // Create project folder
+  const projectFolderName = projectName || `yolo_training_${jobId}`;
+  const projectFolder = await dirHandle.getDirectoryHandle(projectFolderName, { create: true });
+
+  // Extract all files
+  for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
+    if (zipEntry.dir) continue;
+
+    // Create subdirectories if needed
+    const pathParts = relativePath.split('/');
+    let currentFolder = projectFolder;
+
+    for (let i = 0; i < pathParts.length - 1; i++) {
+      currentFolder = await currentFolder.getDirectoryHandle(pathParts[i], { create: true });
+    }
+
+    // Write file
+    const fileName = pathParts[pathParts.length - 1];
+    const fileHandle = await currentFolder.getFileHandle(fileName, { create: true });
+    const writable = await fileHandle.createWritable();
+    const content = await zipEntry.async('uint8array');
+    await writable.write(content);
+    await writable.close();
+
+    filesWritten++;
+  }
+
+  return { filesWritten };
+}
+
+/**
  * Get training results
  */
 export async function getTrainingResults(jobId: string): Promise<any> {

@@ -7,7 +7,8 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import structlog
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, BackgroundTasks
+from fastapi.background import BackgroundTask
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -351,6 +352,69 @@ async def download_model(
         filename=f"yolo_{job_id}_best.pt",
         media_type="application/octet-stream",
     )
+
+
+@app.get("/api/training/{job_id}/download-all")
+async def download_training_package(
+    job_id: str,
+    manager: TrainingManagerDep,
+) -> FileResponse:
+    """Download complete training package as ZIP.
+
+    包含：
+    - weights/ (best.pt, last.pt, best.onnx)
+    - 訓練圖表 (results.png, confusion_matrix.png 等)
+    - 訓練配置 (args.yaml)
+    - 訓練數據 (results.csv)
+
+    Raises:
+        TrainingNotFoundError: If training job doesn't exist
+        ModelNotReadyError: If training is not completed
+    """
+    import zipfile
+    import tempfile
+    from pathlib import Path
+
+    status = manager.get_status(job_id)
+    if not status:
+        raise TrainingNotFoundError(job_id)
+
+    if status.status != "completed":
+        raise ModelNotReadyError(job_id, status.status)
+
+    # Get training directory
+    job_dir = manager.work_dir / job_id
+    training_dir = job_dir / "training"
+
+    if not training_dir.exists():
+        raise ModelFileNotFoundError(job_id, str(training_dir))
+
+    # Create temporary ZIP file
+    temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
+    temp_zip.close()
+
+    try:
+        with zipfile.ZipFile(temp_zip.name, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            # Add all files from training directory
+            for file_path in training_dir.rglob('*'):
+                if file_path.is_file():
+                    # 保持相對路徑結構
+                    arcname = file_path.relative_to(training_dir)
+                    zipf.write(file_path, arcname)
+
+        logger.info("training_package_created", job_id=job_id, zip_size=Path(temp_zip.name).stat().st_size)
+
+        return FileResponse(
+            path=temp_zip.name,
+            filename=f"yolo_training_{job_id}.zip",
+            media_type="application/zip",
+            background=BackgroundTask(lambda: Path(temp_zip.name).unlink(missing_ok=True))
+        )
+    except Exception as e:
+        # Clean up on error
+        Path(temp_zip.name).unlink(missing_ok=True)
+        logger.error("training_package_failed", job_id=job_id, error=str(e))
+        raise
 
 
 @app.get("/api/training/{job_id}/results")
