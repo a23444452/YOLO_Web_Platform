@@ -27,6 +27,10 @@ interface AnnotationState {
   currentImageId: string | null;
   selectedBoxId: string | null;
 
+  // 檔案系統存取
+  directoryHandle: FileSystemDirectoryHandle | null;
+  setDirectoryHandle: (handle: FileSystemDirectoryHandle | null) => void;
+
   // 歷史記錄
   history: HistoryEntry[];
   historyIndex: number;
@@ -41,6 +45,7 @@ interface AnnotationState {
 
   // Actions
   addImages: (files: File[]) => Promise<{ added: number; duplicates: string[] } | void>;
+  loadFolderWithAnnotations: (dirHandle: FileSystemDirectoryHandle) => Promise<{ images: number; annotations: number; classes: number }>;
   removeImage: (id: string) => void;
   clearAllImages: () => void;
   setCurrentImage: (id: string | null) => void;
@@ -66,6 +71,10 @@ interface AnnotationState {
 
   // 導出功能
   exportAnnotations: () => Promise<Blob>;
+
+  // 保存到檔案系統
+  saveCurrentAnnotation: () => Promise<void>;
+  saveAllAnnotations: () => Promise<{ saved: number; failed: number }>;
 }
 
 // 創建深拷貝以避免引用問題
@@ -80,6 +89,10 @@ export const useAnnotationStore = create<AnnotationState>((set, get) => ({
   ],
   currentImageId: null,
   selectedBoxId: null,
+
+  // 檔案系統存取
+  directoryHandle: null,
+  setDirectoryHandle: (handle) => set({ directoryHandle: handle }),
 
   // 歷史記錄初始狀態
   history: [],
@@ -534,6 +547,196 @@ export const useAnnotationStore = create<AnnotationState>((set, get) => ({
   canRedo: () => {
     const state = get();
     return state.historyIndex < state.history.length - 1;
+  },
+
+  loadFolderWithAnnotations: async (dirHandle: FileSystemDirectoryHandle) => {
+    try {
+      const imageFiles: File[] = [];
+      const labelFiles = new Map<string, string>(); // filename -> label content
+      let classesContent = '';
+
+      // 讀取資料夾中的所有檔案
+      for await (const entry of dirHandle.values()) {
+        if (entry.kind === 'file') {
+          const file = await entry.getFile();
+
+          // 圖片檔案
+          if (file.type.startsWith('image/')) {
+            imageFiles.push(file);
+          }
+          // classes.txt
+          else if (file.name.toLowerCase() === 'classes.txt') {
+            classesContent = await file.text();
+          }
+          // YOLO 標註檔案
+          else if (file.name.endsWith('.txt')) {
+            const baseName = file.name.replace(/\.txt$/, '');
+            labelFiles.set(baseName, await file.text());
+          }
+        }
+      }
+
+      // 載入 classes
+      let loadedClasses = 0;
+      if (classesContent) {
+        const classNames = classesContent
+          .split('\n')
+          .map(line => line.trim())
+          .filter(line => line.length > 0);
+        loadedClasses = get().addClassesFromList(classNames);
+      }
+
+      // 載入圖片和標註
+      const state = get();
+      const newImages: ImageAnnotation[] = [];
+
+      for (const file of imageFiles) {
+        const dataUrl = await readFileAsDataURL(file);
+        const { width, height } = await getImageDimensions(dataUrl);
+
+        // 解析 YOLO 標註
+        const baseName = file.name.replace(/\.[^/.]+$/, '');
+        const labelContent = labelFiles.get(baseName);
+        const boxes: BoundingBox[] = [];
+
+        if (labelContent) {
+          const lines = labelContent.split('\n').filter(line => line.trim());
+          for (const line of lines) {
+            const parts = line.trim().split(/\s+/);
+            if (parts.length >= 5) {
+              const classId = parseInt(parts[0]);
+              const x = parseFloat(parts[1]);
+              const y = parseFloat(parts[2]);
+              const w = parseFloat(parts[3]);
+              const h = parseFloat(parts[4]);
+
+              // 確認類別存在
+              const classObj = state.classes.find(c => c.id === classId);
+              if (classObj) {
+                boxes.push({
+                  id: crypto.randomUUID(),
+                  classId,
+                  className: classObj.name,
+                  x,
+                  y,
+                  width: w,
+                  height: h,
+                });
+              }
+            }
+          }
+        }
+
+        newImages.push({
+          id: crypto.randomUUID(),
+          filename: file.name,
+          width,
+          height,
+          dataUrl,
+          boxes,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      }
+
+      // 更新 store
+      set({
+        images: newImages,
+        currentImageId: newImages[0]?.id || null,
+        directoryHandle: dirHandle,
+      });
+
+      // 保存到 IndexedDB
+      await saveImages(newImages);
+
+      // 記錄歷史
+      get()._recordHistory();
+
+      const totalAnnotations = newImages.reduce((sum, img) => sum + img.boxes.length, 0);
+      return {
+        images: newImages.length,
+        annotations: totalAnnotations,
+        classes: loadedClasses,
+      };
+    } catch (error) {
+      console.error('Failed to load folder:', error);
+      throw error;
+    }
+  },
+
+  saveCurrentAnnotation: async () => {
+    const state = get();
+    const currentImage = state.getCurrentImage();
+
+    if (!currentImage) {
+      throw new Error('沒有選擇圖片');
+    }
+
+    if (!state.directoryHandle) {
+      throw new Error('沒有檔案系統存取權限，請使用「選擇資料夾」功能');
+    }
+
+    // 生成 YOLO 格式標註
+    const yoloLines = currentImage.boxes.map(box => {
+      return `${box.classId} ${box.x.toFixed(6)} ${box.y.toFixed(6)} ${box.width.toFixed(6)} ${box.height.toFixed(6)}`;
+    }).join('\n');
+
+    const labelFilename = currentImage.filename.replace(/\.[^/.]+$/, '.txt');
+
+    // 寫入檔案
+    const fileHandle = await state.directoryHandle.getFileHandle(labelFilename, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(yoloLines);
+    await writable.close();
+  },
+
+  saveAllAnnotations: async () => {
+    const state = get();
+
+    if (!state.directoryHandle) {
+      throw new Error('沒有檔案系統存取權限，請使用「選擇資料夾」功能');
+    }
+
+    let saved = 0;
+    let failed = 0;
+
+    // 保存 classes.txt
+    try {
+      const classesText = state.classes
+        .sort((a, b) => a.id - b.id)
+        .map(c => c.name)
+        .join('\n');
+
+      const classesHandle = await state.directoryHandle.getFileHandle('classes.txt', { create: true });
+      const writable = await classesHandle.createWritable();
+      await writable.write(classesText);
+      await writable.close();
+    } catch (error) {
+      console.error('Failed to save classes.txt:', error);
+    }
+
+    // 保存每張圖片的標註
+    for (const image of state.images) {
+      try {
+        if (image.boxes.length > 0) {
+          const yoloLines = image.boxes.map(box => {
+            return `${box.classId} ${box.x.toFixed(6)} ${box.y.toFixed(6)} ${box.width.toFixed(6)} ${box.height.toFixed(6)}`;
+          }).join('\n');
+
+          const labelFilename = image.filename.replace(/\.[^/.]+$/, '.txt');
+          const fileHandle = await state.directoryHandle.getFileHandle(labelFilename, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(yoloLines);
+          await writable.close();
+          saved++;
+        }
+      } catch (error) {
+        console.error(`Failed to save ${image.filename}:`, error);
+        failed++;
+      }
+    }
+
+    return { saved, failed };
   },
 
   exportAnnotations: async () => {
