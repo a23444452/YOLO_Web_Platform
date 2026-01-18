@@ -545,9 +545,11 @@ export function AnnotationCanvas({ image }: AnnotationCanvasProps) {
         setSelectedBox(null);
         setMode('idle');
       } else if (e.key >= '1' && e.key <= '9') {
+        // 按照 class.id 排序後選擇類別，確保快捷鍵對應正確
+        const sortedClasses = [...classes].sort((a, b) => a.id - b.id);
         const classIndex = parseInt(e.key) - 1;
-        if (classIndex < classes.length) {
-          setSelectedClassId(classes[classIndex].id);
+        if (classIndex < sortedClasses.length) {
+          setSelectedClassId(sortedClasses[classIndex].id);
         }
       }
     };

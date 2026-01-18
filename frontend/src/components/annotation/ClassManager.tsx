@@ -21,6 +21,9 @@ export function ClassManager() {
   const [editingName, setEditingName] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
 
+  // 按照 class.id 排序，確保快捷鍵對應正確
+  const sortedClasses = [...classes].sort((a, b) => a.id - b.id);
+
   const handleAddClass = () => {
     if (newClassName.trim()) {
       addClass(newClassName.trim());
@@ -79,7 +82,7 @@ export function ClassManager() {
 
       <ScrollArea className="h-64">
         <div className="space-y-1">
-          {classes.map((classItem, index) => (
+          {sortedClasses.map((classItem, index) => (
             <div
               key={classItem.id}
               className="flex items-center gap-2 p-2 rounded-lg hover:bg-muted/50 group"

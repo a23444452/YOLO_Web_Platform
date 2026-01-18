@@ -583,7 +583,22 @@ export const useAnnotationStore = create<AnnotationState>((set, get) => ({
           .split('\n')
           .map(line => line.trim())
           .filter(line => line.length > 0);
-        loadedClasses = get().addClassesFromList(classNames);
+
+        // 清除現有類別（包含預設的 person），重新從 classes.txt 建立
+        // 這樣可以確保 class id 和 classes.txt 的行號一致
+        set({ classes: [] });
+
+        // 根據 classes.txt 的順序建立類別，id 從 0 開始
+        const newClasses: ClassDefinition[] = classNames.map((name, index) => ({
+          id: index,
+          name: name.trim(),
+          color: CLASS_COLORS[index % CLASS_COLORS.length],
+          count: 0,
+        }));
+
+        set({ classes: newClasses });
+        await saveClasses(newClasses);
+        loadedClasses = newClasses.length;
       }
 
       // 載入圖片和標註
