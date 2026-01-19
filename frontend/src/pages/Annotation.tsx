@@ -47,8 +47,8 @@ export function Annotation() {
   const [isAutoLabeling, setIsAutoLabeling] = useState(false);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string>('');
-  const [confidence, setConfidence] = useState([0.25]);
-  const [iou, setIou] = useState([0.45]);
+  const [confidence, setConfidence] = useState([0.7]);
+  const [iou, setIou] = useState([0.8]);
 
   // 鍵盤快捷鍵
   useEffect(() => {
