@@ -241,4 +241,18 @@ pnpm dev
 
 ---
 
+## 🚀 生產部署
+
+想要部署到生產環境？請參考詳細的部署指南：
+
+📖 **[DEPLOYMENT.md](./DEPLOYMENT.md)** - 完整部署指南
+
+包含以下部署方案：
+- 🏠 本地/內網部署（適合個人使用）
+- 🐳 Docker 容器化部署（適合團隊協作）
+- ☁️ 雲端部署（AWS/GCP/Azure）
+- 🔀 混合部署（優化成本）
+
+---
+
 **Generated with [Claude Code](https://claude.ai/code) via [Happy](https://happy.engineering)**
