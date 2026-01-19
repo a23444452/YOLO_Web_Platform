@@ -316,13 +316,15 @@ export function Annotation() {
             iou[0]
           );
 
+          console.log(`圖片 ${image.filename} 推論結果:`, result.detections.length, '個偵測');
+
           // 轉換推論結果為標註框
           for (const detection of result.detections) {
-            // 找到或創建對應的類別
-            let classId = classes.findIndex(c => c.name === detection.class_name);
+            // 找到對應的類別
+            const classObj = classes.find(c => c.name === detection.class_name);
 
-            if (classId === -1) {
-              // 如果類別不存在，可以選擇跳過或自動創建
+            if (!classObj) {
+              // 如果類別不存在，跳過此偵測
               console.warn(`類別 "${detection.class_name}" 不存在，跳過此偵測`);
               continue;
             }
@@ -341,16 +343,17 @@ export function Annotation() {
 
             // 添加標註框
             addBox(image.id, {
-              classId,
-              className: detection.class_name,
+              classId: classObj.id,  // 使用實際的類別 ID
+              className: classObj.name,
               x: centerX,
               y: centerY,
               width,
               height,
-              color: classes[classId].color,
+              color: classObj.color,
             });
 
             totalBoxes++;
+            console.log(`已添加標註框: 類別=${classObj.name} (ID=${classObj.id}), 信心度=${detection.confidence.toFixed(2)}`);
           }
 
           successCount++;
