@@ -438,10 +438,12 @@ export const useAnnotationStore = create<AnnotationState>((set, get) => ({
   },
 
   removeBox: (imageId: string, boxId: string) => {
-    set((state) => {
-      const image = state.images.find((img) => img.id === imageId);
-      const box = image?.boxes.find((b) => b.id === boxId);
+    // 先取得要刪除的 box 資訊
+    const state = get();
+    const image = state.images.find((img) => img.id === imageId);
+    const box = image?.boxes.find((b) => b.id === boxId);
 
+    set((state) => {
       return {
         images: state.images.map((img) =>
           img.id === imageId
@@ -462,10 +464,18 @@ export const useAnnotationStore = create<AnnotationState>((set, get) => ({
     });
 
     // 保存到 IndexedDB
-    const state = get();
-    const updatedImage = state.images.find((img) => img.id === imageId);
+    const updatedState = get();
+    const updatedImage = updatedState.images.find((img) => img.id === imageId);
     if (updatedImage) {
       saveImage(updatedImage);
+    }
+
+    // 保存更新後的類別計數
+    if (box) {
+      const updatedClass = updatedState.classes.find(c => c.id === box.classId);
+      if (updatedClass) {
+        saveClass(updatedClass);
+      }
     }
 
     // 記錄歷史
@@ -655,15 +665,31 @@ export const useAnnotationStore = create<AnnotationState>((set, get) => ({
         });
       }
 
+      // 計算每個類別的標註數量
+      const classCounts = new Map<number, number>();
+      for (const image of newImages) {
+        for (const box of image.boxes) {
+          classCounts.set(box.classId, (classCounts.get(box.classId) || 0) + 1);
+        }
+      }
+
+      // 更新類別的 count
+      const updatedClasses = state.classes.map(c => ({
+        ...c,
+        count: classCounts.get(c.id) || 0,
+      }));
+
       // 更新 store
       set({
         images: newImages,
         currentImageId: newImages[0]?.id || null,
         directoryHandle: dirHandle,
+        classes: updatedClasses,
       });
 
       // 保存到 IndexedDB
       await saveImages(newImages);
+      await saveClasses(updatedClasses);
 
       // 記錄歷史
       get()._recordHistory();

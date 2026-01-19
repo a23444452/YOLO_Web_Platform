@@ -542,7 +542,7 @@ export function Annotation() {
       </div>
 
       <div className="flex-1 flex overflow-hidden">
-        <aside className="w-80 border-r border-border flex flex-col overflow-hidden">
+        <aside className="w-96 border-r border-border flex flex-col overflow-hidden">
           <div className="flex-1 overflow-auto">
             <ImageList />
           </div>
