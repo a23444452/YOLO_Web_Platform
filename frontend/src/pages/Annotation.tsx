@@ -5,8 +5,26 @@ import { ImageList } from '@/components/annotation/ImageList';
 import { ClassManager } from '@/components/annotation/ClassManager';
 import { AnnotationCanvas } from '@/components/annotation/AnnotationCanvas';
 import { Button } from '@/components/ui/button';
-import { Download, Save, Loader2, Upload, FolderOpen, FolderSync } from 'lucide-react';
+import { Download, Save, Loader2, Upload, FolderOpen, FolderSync, Wand2 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+import { Slider } from '@/components/ui/slider';
 import { toast } from 'sonner';
+import { listInferenceModels, runInference, loadModel, type ModelInfo } from '@/lib/api';
 
 export function Annotation() {
   const {
@@ -23,6 +41,14 @@ export function Annotation() {
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+
+  // 自動標註相關狀態
+  const [isAutoLabelOpen, setIsAutoLabelOpen] = useState(false);
+  const [isAutoLabeling, setIsAutoLabeling] = useState(false);
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState<string>('');
+  const [confidence, setConfidence] = useState([0.25]);
+  const [iou, setIou] = useState([0.45]);
 
   // 鍵盤快捷鍵
   useEffect(() => {
@@ -154,7 +180,7 @@ export function Annotation() {
       }
 
       // 請求使用者選擇資料夾
-      const dirHandle = await (window as any).showDirectoryPicker({
+      const dirHandle = await (window as Window & typeof globalThis & { showDirectoryPicker: (options?: { mode?: string }) => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker({
         mode: 'readwrite',
       });
 
@@ -169,8 +195,8 @@ export function Annotation() {
           description: result.classes > 0 ? `新增 ${result.classes} 個類別` : undefined,
         }
       );
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
         // 使用者取消選擇
         return;
       }
@@ -190,8 +216,9 @@ export function Annotation() {
     try {
       await saveCurrentAnnotation();
       toast.success('已保存當前標註');
-    } catch (error: any) {
-      toast.error(error.message || '保存失敗');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '保存失敗';
+      toast.error(errorMessage);
       console.error(error);
     } finally {
       setIsSaving(false);
@@ -213,13 +240,146 @@ export function Annotation() {
       } else {
         toast.success(`已保存 ${result.saved} 個標註檔案`);
       }
-    } catch (error: any) {
-      toast.error(error.message || '保存失敗');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '保存失敗';
+      toast.error(errorMessage);
       console.error(error);
     } finally {
       setIsSaving(false);
     }
   }, [directoryHandle, saveAllAnnotations]);
+
+  // 載入可用模型列表
+  const handleOpenAutoLabel = useCallback(async () => {
+    try {
+      const response = await listInferenceModels();
+      setAvailableModels(response.models);
+      if (response.models.length === 0) {
+        toast.error('沒有可用的訓練模型，請先訓練模型');
+        return;
+      }
+      // 預設選擇第一個模型
+      if (response.models.length > 0 && !selectedModelId) {
+        setSelectedModelId(response.models[0].model_id);
+      }
+      setIsAutoLabelOpen(true);
+    } catch (error) {
+      toast.error('載入模型列表失敗');
+      console.error(error);
+    }
+  }, [selectedModelId]);
+
+  // 執行自動標註
+  const handleAutoLabel = useCallback(async () => {
+    if (!selectedModelId) {
+      toast.error('請選擇模型');
+      return;
+    }
+
+    if (images.length === 0) {
+      toast.error('沒有圖片可標註');
+      return;
+    }
+
+    const { classes, addBox } = useAnnotationStore.getState();
+
+    setIsAutoLabeling(true);
+    setIsAutoLabelOpen(false);
+
+    try {
+      // 載入模型
+      toast.loading('正在載入模型...', { id: 'auto-label' });
+      await loadModel(selectedModelId);
+
+      // 找到選定的模型資訊
+      const selectedModel = availableModels.find(m => m.model_id === selectedModelId);
+      if (!selectedModel) {
+        throw new Error('找不到選定的模型');
+      }
+
+      // 批次處理所有圖片
+      let successCount = 0;
+      let failCount = 0;
+      let totalBoxes = 0;
+
+      toast.loading(`正在標註 ${images.length} 張圖片...`, { id: 'auto-label' });
+
+      for (let i = 0; i < images.length; i++) {
+        const image = images[i];
+
+        try {
+          // 執行推論
+          const result = await runInference(
+            selectedModelId,
+            image.dataUrl,
+            confidence[0],
+            iou[0]
+          );
+
+          // 轉換推論結果為標註框
+          for (const detection of result.detections) {
+            // 找到或創建對應的類別
+            let classId = classes.findIndex(c => c.name === detection.class_name);
+
+            if (classId === -1) {
+              // 如果類別不存在，可以選擇跳過或自動創建
+              console.warn(`類別 "${detection.class_name}" 不存在，跳過此偵測`);
+              continue;
+            }
+
+            // 從 API 的 bbox 格式 (x1, y1, x2, y2 像素座標) 轉換為 YOLO 格式 (中心點 x, y, 寬, 高, 歸一化 0-1)
+            // 使用圖片的實際寬高進行歸一化
+            const x1 = detection.bbox.x1 / image.width;
+            const y1 = detection.bbox.y1 / image.height;
+            const x2 = detection.bbox.x2 / image.width;
+            const y2 = detection.bbox.y2 / image.height;
+
+            const centerX = (x1 + x2) / 2;
+            const centerY = (y1 + y2) / 2;
+            const width = x2 - x1;
+            const height = y2 - y1;
+
+            // 添加標註框
+            addBox(image.id, {
+              classId,
+              className: detection.class_name,
+              x: centerX,
+              y: centerY,
+              width,
+              height,
+              color: classes[classId].color,
+            });
+
+            totalBoxes++;
+          }
+
+          successCount++;
+
+          // 更新進度
+          if ((i + 1) % 5 === 0 || i === images.length - 1) {
+            toast.loading(
+              `已標註 ${i + 1}/${images.length} 張圖片，偵測到 ${totalBoxes} 個物體`,
+              { id: 'auto-label' }
+            );
+          }
+        } catch (error) {
+          console.error(`處理圖片 ${image.filename} 失敗:`, error);
+          failCount++;
+        }
+      }
+
+      toast.success(
+        `自動標註完成！成功: ${successCount}，失敗: ${failCount}，共偵測到 ${totalBoxes} 個物體`,
+        { id: 'auto-label' }
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '自動標註失敗';
+      toast.error(errorMessage, { id: 'auto-label' });
+      console.error('Auto label error:', error);
+    } finally {
+      setIsAutoLabeling(false);
+    }
+  }, [selectedModelId, images, confidence, iou, availableModels]);
 
   if (images.length === 0) {
     return (
@@ -302,6 +462,24 @@ export function Annotation() {
               </Button>
             </>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleOpenAutoLabel}
+            disabled={isAutoLabeling || images.length === 0}
+          >
+            {isAutoLabeling ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                標註中...
+              </>
+            ) : (
+              <>
+                <Wand2 className="mr-2 h-4 w-4" />
+                自動標註
+              </>
+            )}
+          </Button>
           {directoryHandle && (
             <>
               <Button
@@ -412,6 +590,89 @@ export function Annotation() {
           }
         }}
       />
+
+      {/* 自動標註對話框 */}
+      <Dialog open={isAutoLabelOpen} onOpenChange={setIsAutoLabelOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>自動標註</DialogTitle>
+            <DialogDescription>
+              使用訓練好的模型自動標註所有圖片。自動產生的標註可在介面上進行微調與修正。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div>
+              <Label htmlFor="model">選擇模型</Label>
+              <Select value={selectedModelId} onValueChange={setSelectedModelId}>
+                <SelectTrigger id="model">
+                  <SelectValue placeholder="請選擇模型" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableModels.map((model) => (
+                    <SelectItem key={model.model_id} value={model.model_id}>
+                      {model.name} ({model.yolo_version}{model.model_size})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                共 {availableModels.length} 個可用模型
+              </p>
+            </div>
+
+            <div>
+              <Label>信心度閾值 (Confidence): {confidence[0].toFixed(2)}</Label>
+              <Slider
+                value={confidence}
+                onValueChange={setConfidence}
+                min={0.1}
+                max={0.95}
+                step={0.05}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                低於此信心度的偵測結果將被過濾
+              </p>
+            </div>
+
+            <div>
+              <Label>IOU 閾值: {iou[0].toFixed(2)}</Label>
+              <Slider
+                value={iou}
+                onValueChange={setIou}
+                min={0.1}
+                max={0.95}
+                step={0.05}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                用於非極大值抑制 (NMS)，移除重疊的偵測框
+              </p>
+            </div>
+
+            <div className="pt-2 border-t border-border">
+              <p className="text-sm">
+                <strong>將處理：</strong>{images.length} 張圖片
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                注意：自動標註會在現有標註基礎上添加新的偵測結果
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsAutoLabelOpen(false)}
+            >
+              取消
+            </Button>
+            <Button onClick={handleAutoLabel} disabled={!selectedModelId}>
+              <Wand2 className="mr-2 h-4 w-4" />
+              開始自動標註
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
