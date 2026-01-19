@@ -288,14 +288,17 @@ export function Annotation() {
 
     try {
       // 載入模型
+      console.log(`開始自動標註，模型 ID: ${selectedModelId}`);
       toast.loading('正在載入模型...', { id: 'auto-label' });
       await loadModel(selectedModelId);
+      console.log('✅ 模型載入成功');
 
       // 找到選定的模型資訊
       const selectedModel = availableModels.find(m => m.model_id === selectedModelId);
       if (!selectedModel) {
         throw new Error('找不到選定的模型');
       }
+      console.log('選定的模型:', selectedModel.name, '類別:', selectedModel.classes);
 
       // 批次處理所有圖片
       let successCount = 0;
@@ -308,15 +311,20 @@ export function Annotation() {
         const image = images[i];
 
         try {
+          // 提取純 base64 數據（移除 data URL 前綴）
+          const base64Data = image.dataUrl.split(',')[1] || image.dataUrl;
+          console.log(`處理圖片 ${i + 1}/${images.length}: ${image.filename}, 寬=${image.width}, 高=${image.height}`);
+
           // 執行推論
           const result = await runInference(
             selectedModelId,
-            image.dataUrl,
+            base64Data,
             confidence[0],
             iou[0]
           );
 
-          console.log(`圖片 ${image.filename} 推論結果:`, result.detections.length, '個偵測');
+          console.log(`圖片 ${image.filename} 推論結果:`, result.detections.length, '個偵測', result.detections);
+          console.log('當前可用的類別:', classes.map(c => ({ id: c.id, name: c.name })));
 
           // 轉換推論結果為標註框
           for (const detection of result.detections) {
@@ -325,7 +333,8 @@ export function Annotation() {
 
             if (!classObj) {
               // 如果類別不存在，跳過此偵測
-              console.warn(`類別 "${detection.class_name}" 不存在，跳過此偵測`);
+              console.error(`❌ 類別 "${detection.class_name}" 不存在於當前類別列表中，跳過此偵測`);
+              console.log('可用類別名稱:', classes.map(c => c.name).join(', '));
               continue;
             }
 
@@ -342,6 +351,8 @@ export function Annotation() {
             const height = y2 - y1;
 
             // 添加標註框
+            console.log(`準備添加標註框: 圖片ID=${image.id}, 類別=${classObj.name} (ID=${classObj.id}), 座標=(${centerX.toFixed(4)}, ${centerY.toFixed(4)}), 尺寸=(${width.toFixed(4)}, ${height.toFixed(4)})`);
+
             addBox(image.id, {
               classId: classObj.id,  // 使用實際的類別 ID
               className: classObj.name,
@@ -353,7 +364,7 @@ export function Annotation() {
             });
 
             totalBoxes++;
-            console.log(`已添加標註框: 類別=${classObj.name} (ID=${classObj.id}), 信心度=${detection.confidence.toFixed(2)}`);
+            console.log(`✅ 已成功添加標註框: 類別=${classObj.name} (ID=${classObj.id}), 信心度=${detection.confidence.toFixed(2)}`);
           }
 
           successCount++;
@@ -366,7 +377,11 @@ export function Annotation() {
             );
           }
         } catch (error) {
-          console.error(`處理圖片 ${image.filename} 失敗:`, error);
+          console.error(`❌ 處理圖片 ${image.filename} 失敗:`, error);
+          if (error instanceof Error) {
+            console.error('錯誤訊息:', error.message);
+            console.error('錯誤堆疊:', error.stack);
+          }
           failCount++;
         }
       }

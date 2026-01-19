@@ -1,5 +1,112 @@
 # 更新日誌
 
+## [1.6.3] - 2026-01-19
+
+### 🐛 自動標註功能完整修復
+
+#### 問題 1：Base64 數據格式錯誤（主要問題）
+
+**症狀**:
+- 推論測試頁面可以成功標註
+- 自動標註功能完全無法運作
+
+**根本原因**:
+```typescript
+// ❌ 錯誤：直接傳入完整的 data URL
+const result = await runInference(
+  selectedModelId,
+  image.dataUrl,  // "data:image/jpeg;base64,iVBORw0KGgoAAAANSUhEUgAA..."
+  confidence[0],
+  iou[0]
+);
+```
+
+後端 API 只接受純 base64 字符串，不接受 data URL 格式。推論頁面會先移除前綴：
+```typescript
+const base64Data = selectedImage.split(',')[1] || selectedImage;
+```
+
+**修復**:
+```typescript
+// ✅ 正確：移除 data URL 前綴後再傳入
+const base64Data = image.dataUrl.split(',')[1] || image.dataUrl;
+const result = await runInference(
+  selectedModelId,
+  base64Data,  // 純 base64 字符串
+  confidence[0],
+  iou[0]
+);
+```
+
+#### 問題 2：類別 ID 使用錯誤（v1.6.2 已修復）
+
+這個問題在 v1.6.2 已經修復，但由於 base64 格式問題導致推論失敗，所以之前的修復沒有發揮作用。
+
+### 🔍 新增完整除錯日誌系統
+
+為了幫助追蹤自動標註過程，新增以下日誌：
+
+1. **模型載入追蹤**
+   ```
+   開始自動標註，模型 ID: xxx
+   ✅ 模型載入成功
+   選定的模型: project_name 類別: ['class1', 'class2']
+   ```
+
+2. **圖片處理追蹤**
+   ```
+   處理圖片 1/10: image.jpg, 寬=640, 高=480
+   圖片 image.jpg 推論結果: 5 個偵測 [詳細檢測結果]
+   當前可用的類別: [{id: 0, name: 'class1'}, {id: 1, name: 'class2'}]
+   ```
+
+3. **標註框添加追蹤**
+   ```
+   準備添加標註框: 圖片ID=xxx, 類別=person (ID=0), 座標=(0.5123, 0.3456), 尺寸=(0.2000, 0.3000)
+   ✅ 已成功添加標註框: 類別=person (ID=0), 信心度=0.85
+   ```
+
+4. **錯誤處理強化**
+   ```
+   ❌ 類別 "unknown" 不存在於當前類別列表中，跳過此偵測
+   可用類別名稱: class1, class2, class3
+
+   ❌ 處理圖片 image.jpg 失敗: Error message
+   錯誤訊息: Detailed error message
+   錯誤堆疊: Full stack trace
+   ```
+
+### 🔧 技術細節
+
+**為什麼推論頁面正常，自動標註失敗？**
+
+兩個頁面的差異：
+
+| 項目 | 推論頁面 (Inference.tsx) | 自動標註 (Annotation.tsx v1.6.0-1.6.2) |
+|------|-------------------------|----------------------------------------|
+| Base64 處理 | ✅ 移除 data URL 前綴 | ❌ 直接傳入完整 data URL |
+| 類別 ID | N/A（不需要添加到 store） | ❌ 使用陣列索引（v1.6.2 已修復） |
+| 錯誤日誌 | 基本 | ❌ 不足 |
+
+**修復後的流程**:
+1. 載入選定的模型到記憶體
+2. 遍歷所有圖片
+3. 提取純 base64 數據（移除 `data:image/jpeg;base64,` 前綴）
+4. 調用後端推論 API
+5. 根據類別名稱找到對應的類別物件（使用實際的 class.id）
+6. 將像素座標轉換為 YOLO 歸一化格式
+7. 添加標註框到圖片
+8. 輸出詳細的除錯日誌
+
+**修改檔案** (`src/pages/Annotation.tsx`):
+- 第 311-314 行：新增 base64 數據提取邏輯
+- 第 289-302 行：新增模型載入日誌
+- 第 315-330 行：新增推論結果日誌
+- 第 351-365 行：新增標註框添加日誌
+- 第 377-383 行：強化錯誤處理
+
+---
+
 ## [1.6.2] - 2026-01-19
 
 ### 🐛 緊急修復
