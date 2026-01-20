@@ -2,6 +2,333 @@
 
 完整的 YOLO 物體偵測訓練與推論平台，包含前端介面和後端 API。
 
+## 📦 安裝步驟
+
+### 系統需求
+
+- **作業系統**: Windows 10/11, macOS 10.15+, Linux (Ubuntu 20.04+)
+- **Python**: 3.12 或以上
+- **Node.js**: 18.0 或以上
+- **記憶體**: 最少 8GB RAM (建議 16GB)
+- **儲存空間**: 至少 10GB 可用空間
+- **GPU**: 非必需,但強烈建議用於訓練 (NVIDIA GPU with CUDA support)
+
+### Windows 安裝步驟
+
+#### 1. 安裝必要軟體
+
+**安裝 Python 3.12**
+1. 下載 [Python 3.12](https://www.python.org/downloads/)
+2. 安裝時勾選「Add Python to PATH」
+3. 驗證安裝:
+   ```cmd
+   python --version
+   ```
+
+**安裝 Node.js**
+1. 下載 [Node.js LTS](https://nodejs.org/)
+2. 執行安裝程式
+3. 驗證安裝:
+   ```cmd
+   node --version
+   npm --version
+   ```
+
+**安裝 pnpm**
+```cmd
+npm install -g pnpm
+pnpm --version
+```
+
+**安裝 Git** (如果尚未安裝)
+1. 下載 [Git for Windows](https://git-scm.com/download/win)
+2. 執行安裝程式
+3. 驗證安裝:
+   ```cmd
+   git --version
+   ```
+
+#### 2. 克隆專案
+
+```cmd
+# 克隆專案
+git clone https://github.com/a23444452/YOLO_Web_Platform.git
+cd YOLO_Web_Platform
+```
+
+#### 3. 後端設置
+
+```cmd
+# 進入後端目錄
+cd backend
+
+# 建立虛擬環境
+python -m venv venv
+
+# 啟動虛擬環境
+venv\Scripts\activate
+
+# 安裝依賴
+pip install -e .
+
+# 驗證安裝
+python -c "import ultralytics; print('YOLO installed successfully!')"
+```
+
+#### 4. 前端設置
+
+```cmd
+# 回到專案根目錄
+cd ..
+
+# 進入前端目錄
+cd frontend
+
+# 安裝依賴
+pnpm install
+```
+
+#### 5. 啟動服務
+
+**啟動後端** (開啟第一個終端機):
+```cmd
+cd backend
+venv\Scripts\activate
+python -m yolo_api.main
+```
+
+**啟動前端** (開啟第二個終端機):
+```cmd
+cd frontend
+pnpm dev
+```
+
+**訪問應用**:
+- 前端: http://localhost:5173
+- 後端 API: http://localhost:8000
+- API 文檔: http://localhost:8000/docs
+
+### macOS / Linux 安裝步驟
+
+#### 1. 安裝必要軟體
+
+**macOS - 使用 Homebrew**
+```bash
+# 安裝 Homebrew (如果尚未安裝)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# 安裝 Python 3.12
+brew install python@3.12
+
+# 安裝 Node.js
+brew install node
+
+# 安裝 pnpm
+npm install -g pnpm
+
+# 驗證安裝
+python3.12 --version
+node --version
+pnpm --version
+```
+
+**Linux (Ubuntu/Debian)**
+```bash
+# 更新套件列表
+sudo apt update
+
+# 安裝 Python 3.12
+sudo apt install -y python3.12 python3.12-venv python3-pip
+
+# 安裝 Node.js (使用 NodeSource)
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# 安裝 pnpm
+npm install -g pnpm
+
+# 安裝 Git (如果尚未安裝)
+sudo apt install -y git
+
+# 驗證安裝
+python3.12 --version
+node --version
+pnpm --version
+```
+
+#### 2. 克隆專案
+
+```bash
+# 克隆專案
+git clone https://github.com/a23444452/YOLO_Web_Platform.git
+cd YOLO_Web_Platform
+```
+
+#### 3. 後端設置
+
+```bash
+# 進入後端目錄
+cd backend
+
+# 建立虛擬環境
+python3.12 -m venv venv
+
+# 啟動虛擬環境
+source venv/bin/activate
+
+# 安裝依賴
+pip install -e .
+
+# 驗證安裝
+python -c "import ultralytics; print('YOLO installed successfully!')"
+```
+
+#### 4. 前端設置
+
+```bash
+# 回到專案根目錄
+cd ..
+
+# 進入前端目錄
+cd frontend
+
+# 安裝依賴
+pnpm install
+```
+
+#### 5. 啟動服務
+
+**方法 1: 使用自動化腳本 (推薦)**
+```bash
+# 回到專案根目錄
+cd ..
+
+# 賦予腳本執行權限
+chmod +x start.sh stop.sh restart.sh status.sh
+
+# 啟動所有服務
+./start.sh
+
+# 查看服務狀態
+./status.sh
+
+# 停止所有服務
+./stop.sh
+```
+
+**方法 2: 手動啟動**
+
+開啟兩個終端機視窗:
+
+終端機 1 - 後端:
+```bash
+cd backend
+source venv/bin/activate
+python -m yolo_api.main
+```
+
+終端機 2 - 前端:
+```bash
+cd frontend
+pnpm dev
+```
+
+**訪問應用**:
+- 前端: http://localhost:5173
+- 後端 API: http://localhost:8000
+- API 文檔: http://localhost:8000/docs
+
+### GPU 支援 (選用)
+
+如果您有 NVIDIA GPU 並想加速訓練:
+
+**Windows**
+1. 安裝 [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads)
+2. 安裝 [cuDNN](https://developer.nvidia.com/cudnn)
+3. 重新安裝 PyTorch with CUDA:
+   ```cmd
+   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+   ```
+
+**macOS (Apple Silicon)**
+- M1/M2/M3 Mac 會自動使用 Metal Performance Shaders (MPS)
+- 無需額外設定
+
+**Linux**
+```bash
+# 安裝 NVIDIA 驅動
+sudo ubuntu-drivers autoinstall
+
+# 安裝 CUDA Toolkit
+wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-ubuntu2204.pin
+sudo mv cuda-ubuntu2204.pin /etc/apt/preferences.d/cuda-repository-pin-600
+wget https://developer.download.nvidia.com/compute/cuda/12.1.0/local_installers/cuda-repo-ubuntu2204-12-1-local_12.1.0-530.30.02-1_amd64.deb
+sudo dpkg -i cuda-repo-ubuntu2204-12-1-local_12.1.0-530.30.02-1_amd64.deb
+sudo cp /var/cuda-repo-ubuntu2204-12-1-local/cuda-*-keyring.gpg /usr/share/keyrings/
+sudo apt-get update
+sudo apt-get -y install cuda
+
+# 安裝 PyTorch with CUDA
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+```
+
+### 驗證安裝
+
+執行以下命令確認一切正常:
+
+```bash
+# 檢查後端
+curl http://localhost:8000/health
+
+# 應該看到類似以下的回應:
+# {"status":"ok","version":"0.8.2"}
+```
+
+開啟瀏覽器訪問 http://localhost:5173,您應該能看到 YOLO Web Platform 的首頁。
+
+### 常見安裝問題
+
+**Python 版本不符**
+```bash
+# 確認 Python 版本
+python --version
+# 必須是 3.12 或以上
+```
+
+**Node.js 版本過舊**
+```bash
+# 確認 Node.js 版本
+node --version
+# 必須是 v18.0.0 或以上
+```
+
+**pnpm 安裝失敗**
+```bash
+# 使用 npm 重新安裝
+npm uninstall -g pnpm
+npm install -g pnpm@latest
+```
+
+**虛擬環境啟動失敗 (Windows)**
+```cmd
+# 如果出現權限錯誤,以管理員身份執行 PowerShell:
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+**端口被佔用**
+```bash
+# Windows - 查找並關閉佔用端口的程序
+netstat -ano | findstr :8000
+taskkill /PID <PID> /F
+
+# macOS/Linux - 查找並關閉佔用端口的程序
+lsof -ti:8000 | xargs kill -9
+```
+
+更多疑難排解,請參考 [DEPLOYMENT.md](./DEPLOYMENT.md)。
+
+---
+
 ## 🚀 快速開始
 
 ### 使用自動化腳本（推薦）
