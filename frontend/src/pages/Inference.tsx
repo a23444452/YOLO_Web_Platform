@@ -6,26 +6,38 @@ import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Upload, Sparkles, Loader2, FileUp } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Progress } from '@/components/ui/progress';
+import { Upload, Sparkles, Loader2, FileUp, FolderUp, CheckCircle2, XCircle, Download } from 'lucide-react';
 import { toast } from 'sonner';
-import { listInferenceModels, runInference, uploadModel, type ModelInfo, type Detection } from '@/lib/api';
+import { listInferenceModels, runInference, uploadModel, runBatchInference, type ModelInfo, type Detection, type BatchInferenceResult } from '@/lib/api';
 
 export function Inference() {
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [imageFile, setImageFile] = useState<File | null>(null);
+  // Common states
   const [confidence, setConfidence] = useState([0.25]);
   const [iou, setIou] = useState([0.45]);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [isLoadingModels, setIsLoadingModels] = useState(false);
-  const [isInferring, setIsInferring] = useState(false);
-  const [detections, setDetections] = useState<Detection[]>([]);
-  const [inferenceTime, setInferenceTime] = useState<number | null>(null);
-  const [resultImage, setResultImage] = useState<string | null>(null);
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
   const [uploadModelFile, setUploadModelFile] = useState<File | null>(null);
   const [uploadModelName, setUploadModelName] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+
+  // Single image states
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [isInferring, setIsInferring] = useState(false);
+  const [detections, setDetections] = useState<Detection[]>([]);
+  const [inferenceTime, setInferenceTime] = useState<number | null>(null);
+  const [resultImage, setResultImage] = useState<string | null>(null);
+
+  // Batch inference states
+  const [batchFiles, setBatchFiles] = useState<File[]>([]);
+  const [batchResults, setBatchResults] = useState<BatchInferenceResult[]>([]);
+  const [isBatchInferring, setIsBatchInferring] = useState(false);
+  const [batchProgress, setBatchProgress] = useState(0);
+  const [batchTotal, setBatchTotal] = useState(0);
 
   // Load available models on mount
   useEffect(() => {
@@ -194,16 +206,121 @@ export function Inference() {
     }
   };
 
+  const handleBatchFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const imageFiles = files.filter(file => file.type.startsWith('image/'));
+
+    if (imageFiles.length === 0) {
+      toast.error('請選擇圖片文件');
+      return;
+    }
+
+    if (imageFiles.length !== files.length) {
+      toast.warning(`已過濾非圖片文件，載入 ${imageFiles.length} 張圖片`);
+    }
+
+    setBatchFiles(imageFiles);
+    setBatchResults([]);
+    setBatchProgress(0);
+    setBatchTotal(imageFiles.length);
+    toast.success(`已載入 ${imageFiles.length} 張圖片`);
+  }, []);
+
+  const handleBatchInference = async () => {
+    if (batchFiles.length === 0 || !selectedModel) {
+      toast.error('請選擇圖片和模型');
+      return;
+    }
+
+    setIsBatchInferring(true);
+    setBatchResults([]);
+    setBatchProgress(0);
+
+    try {
+      // Convert files to base64
+      const images = await Promise.all(
+        batchFiles.map(async (file) => {
+          const base64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const result = reader.result as string;
+              const base64Data = result.split(',')[1] || result;
+              resolve(base64Data);
+            };
+            reader.readAsDataURL(file);
+          });
+
+          return {
+            filename: file.name,
+            data: base64,
+          };
+        })
+      );
+
+      // Run batch inference
+      const result = await runBatchInference(
+        selectedModel,
+        images,
+        confidence[0],
+        iou[0],
+        (current, total) => {
+          setBatchProgress(current);
+          setBatchTotal(total);
+        }
+      );
+
+      setBatchResults(result.results);
+      toast.success(
+        `批量推論完成！成功: ${result.successful}，失敗: ${result.failed}，總時間: ${(result.total_time / 1000).toFixed(2)}秒`
+      );
+    } catch (error) {
+      toast.error('批量推論失敗：' + (error as Error).message);
+    } finally {
+      setIsBatchInferring(false);
+    }
+  };
+
+  const handleDownloadBatchResults = () => {
+    const csv = [
+      ['檔案名稱', '成功', '檢測數量', '推論時間(ms)', '錯誤訊息'].join(','),
+      ...batchResults.map((result) =>
+        [
+          result.filename,
+          result.success ? '是' : '否',
+          result.detections.length,
+          result.inference_time.toFixed(2),
+          result.error || '',
+        ].join(',')
+      ),
+    ].join('\n');
+
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `batch_inference_results_${Date.now()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="container max-w-6xl mx-auto py-8 px-6">
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">推論測試</h1>
         <p className="text-muted-foreground">
-          上傳圖片進行目標檢測
+          上傳圖片進行目標檢測,支援單張圖片或批量處理
         </p>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-6">
+      <Tabs defaultValue="single" className="w-full">
+        <TabsList className="grid w-full max-w-md grid-cols-2 mb-6">
+          <TabsTrigger value="single">單一圖片</TabsTrigger>
+          <TabsTrigger value="batch">批量處理</TabsTrigger>
+        </TabsList>
+
+        {/* Single Image Tab */}
+        <TabsContent value="single">
+          <div className="grid md:grid-cols-3 gap-6">
         {/* 左側：設置面板 */}
         <div className="space-y-6">
           <Card>
@@ -482,6 +599,338 @@ export function Inference() {
           </Card>
         </div>
       </div>
+        </TabsContent>
+
+        {/* Batch Inference Tab */}
+        <TabsContent value="batch">
+          <div className="grid md:grid-cols-3 gap-6">
+            {/* Left: Settings Panel */}
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">模型選擇</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {isLoadingModels ? (
+                    <div className="flex items-center justify-center p-4">
+                      <Loader2 className="h-6 w-6 animate-spin" />
+                      <span className="ml-2 text-sm">載入模型中...</span>
+                    </div>
+                  ) : availableModels.length === 0 ? (
+                    <div className="p-4 bg-muted rounded-lg text-center">
+                      <p className="text-sm text-muted-foreground">
+                        沒有可用的訓練模型
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Label>選擇模型</Label>
+                      <Select value={selectedModel} onValueChange={setSelectedModel}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="選擇模型" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableModels.map((model) => (
+                            <SelectItem key={model.model_id} value={model.model_id}>
+                              {model.name} ({model.yolo_version}{model.model_size})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" className="w-full mt-4">
+                        <FileUp className="mr-2 h-4 w-4" />
+                        上傳本地模型
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>上傳本地模型</DialogTitle>
+                        <DialogDescription>
+                          上傳訓練好的 .pt 或 .onnx 模型文件進行推論測試
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div>
+                          <Label>模型名稱</Label>
+                          <Input
+                            placeholder="輸入模型名稱"
+                            value={uploadModelName}
+                            onChange={(e) => setUploadModelName(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <Label>模型文件</Label>
+                          <div className="mt-2">
+                            <input
+                              id="model-file-input"
+                              type="file"
+                              accept=".pt,.onnx"
+                              className="hidden"
+                              onChange={handleUploadFileSelect}
+                            />
+                            <Button
+                              variant="outline"
+                              className="w-full"
+                              onClick={() => document.getElementById('model-file-input')?.click()}
+                            >
+                              <Upload className="mr-2 h-4 w-4" />
+                              {uploadModelFile ? uploadModelFile.name : '選擇文件 (.pt 或 .onnx)'}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setIsUploadDialogOpen(false);
+                            setUploadModelFile(null);
+                            setUploadModelName('');
+                          }}
+                          disabled={isUploading}
+                        >
+                          取消
+                        </Button>
+                        <Button
+                          onClick={handleUploadModel}
+                          disabled={!uploadModelFile || !uploadModelName.trim() || isUploading}
+                        >
+                          {isUploading ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              上傳中...
+                            </>
+                          ) : (
+                            '上傳'
+                          )}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">推論設置</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label>信心度閾值: {confidence[0].toFixed(2)}</Label>
+                    <Slider
+                      value={confidence}
+                      onValueChange={setConfidence}
+                      min={0.01}
+                      max={0.99}
+                      step={0.01}
+                      className="mt-2"
+                    />
+                  </div>
+
+                  <div>
+                    <Label>IOU 閾值: {iou[0].toFixed(2)}</Label>
+                    <Slider
+                      value={iou}
+                      onValueChange={setIou}
+                      min={0.1}
+                      max={0.9}
+                      step={0.05}
+                      className="mt-2"
+                    />
+                  </div>
+
+                  <Button
+                    className="w-full"
+                    onClick={handleBatchInference}
+                    disabled={batchFiles.length === 0 || !selectedModel || isBatchInferring}
+                  >
+                    {isBatchInferring ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        批量推論中...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="mr-2 h-4 w-4" />
+                        執行批量推論
+                      </>
+                    )}
+                  </Button>
+
+                  {isBatchInferring && (
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm text-muted-foreground">
+                        <span>處理進度</span>
+                        <span>{batchProgress} / {batchTotal}</span>
+                      </div>
+                      <Progress value={(batchProgress / batchTotal) * 100} />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Right: Results Panel */}
+            <div className="md:col-span-2">
+              <Card className="h-full">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-base">批量處理</CardTitle>
+                      <CardDescription>
+                        上傳多張圖片進行批量檢測
+                      </CardDescription>
+                    </div>
+                    {batchResults.length > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleDownloadBatchResults}
+                      >
+                        <Download className="mr-2 h-4 w-4" />
+                        下載結果 CSV
+                      </Button>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {batchFiles.length === 0 ? (
+                    <div
+                      className="border-2 border-dashed border-border rounded-lg p-12 text-center cursor-pointer hover:border-primary transition-colors"
+                      onClick={() => document.getElementById('batch-file-input')?.click()}
+                    >
+                      <input
+                        id="batch-file-input"
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={handleBatchFileSelect}
+                      />
+                      <FolderUp className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                      <h3 className="text-lg font-semibold mb-2">上傳多張圖片</h3>
+                      <p className="text-sm text-muted-foreground">
+                        點擊選擇多張圖片進行批量檢測
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() => document.getElementById('batch-file-input')?.click()}
+                          disabled={isBatchInferring}
+                        >
+                          更換圖片
+                        </Button>
+                        <input
+                          id="batch-file-input"
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          onChange={handleBatchFileSelect}
+                        />
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setBatchFiles([]);
+                            setBatchResults([]);
+                            setBatchProgress(0);
+                            setBatchTotal(0);
+                          }}
+                          disabled={isBatchInferring}
+                        >
+                          清除
+                        </Button>
+                      </div>
+
+                      <Card className="bg-muted">
+                        <CardHeader>
+                          <CardTitle className="text-sm">
+                            已選擇 {batchFiles.length} 張圖片
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          {batchResults.length === 0 ? (
+                            <div className="space-y-1 max-h-64 overflow-y-auto">
+                              {batchFiles.map((file, idx) => (
+                                <div
+                                  key={idx}
+                                  className="flex items-center justify-between p-2 bg-background rounded text-sm"
+                                >
+                                  <span className="truncate">{file.name}</span>
+                                  <span className="text-xs text-muted-foreground">
+                                    {(file.size / 1024).toFixed(1)} KB
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="space-y-2 max-h-96 overflow-y-auto">
+                              {batchResults.map((result, idx) => (
+                                <div
+                                  key={idx}
+                                  className="flex items-center justify-between p-3 bg-background rounded"
+                                >
+                                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                                    {result.success ? (
+                                      <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0" />
+                                    ) : (
+                                      <XCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
+                                    )}
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-medium truncate">
+                                        {result.filename}
+                                      </p>
+                                      {result.success ? (
+                                        <p className="text-xs text-muted-foreground">
+                                          檢測到 {result.detections.length} 個物體 • {result.inference_time.toFixed(0)}ms
+                                        </p>
+                                      ) : (
+                                        <p className="text-xs text-red-500">
+                                          {result.error}
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {result.success && result.detections.length > 0 && (
+                                    <div className="flex flex-wrap gap-1">
+                                      {result.detections.slice(0, 3).map((det, detIdx) => (
+                                        <span
+                                          key={detIdx}
+                                          className="text-xs px-2 py-1 bg-muted rounded"
+                                        >
+                                          {det.class_name}
+                                        </span>
+                                      ))}
+                                      {result.detections.length > 3 && (
+                                        <span className="text-xs px-2 py-1 bg-muted rounded">
+                                          +{result.detections.length - 3}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

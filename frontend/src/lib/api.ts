@@ -663,3 +663,84 @@ export async function runInference(
 
   return response.json();
 }
+
+/**
+ * Batch inference result for a single image
+ */
+export interface BatchInferenceResult {
+  filename: string;
+  detections: Detection[];
+  inference_time: number;
+  image_size: [number, number];
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Batch inference response
+ */
+export interface BatchInferenceResponse {
+  results: BatchInferenceResult[];
+  total_images: number;
+  successful: number;
+  failed: number;
+  total_time: number;
+}
+
+/**
+ * Run batch inference on multiple images
+ */
+export async function runBatchInference(
+  modelId: string,
+  images: Array<{ filename: string; data: string }>,
+  confidence: number = 0.25,
+  iou: number = 0.45,
+  onProgress?: (current: number, total: number) => void
+): Promise<BatchInferenceResponse> {
+  const results: BatchInferenceResult[] = [];
+  let successful = 0;
+  let failed = 0;
+  const startTime = Date.now();
+
+  for (let i = 0; i < images.length; i++) {
+    try {
+      const result = await runInference(
+        modelId,
+        images[i].data,
+        confidence,
+        iou
+      );
+
+      results.push({
+        filename: images[i].filename,
+        detections: result.detections,
+        inference_time: result.inference_time,
+        image_size: result.image_size,
+        success: true,
+      });
+      successful++;
+    } catch (error) {
+      results.push({
+        filename: images[i].filename,
+        detections: [],
+        inference_time: 0,
+        image_size: [0, 0],
+        success: false,
+        error: (error as Error).message,
+      });
+      failed++;
+    }
+
+    onProgress?.(i + 1, images.length);
+  }
+
+  const totalTime = Date.now() - startTime;
+
+  return {
+    results,
+    total_images: images.length,
+    successful,
+    failed,
+    total_time: totalTime,
+  };
+}
